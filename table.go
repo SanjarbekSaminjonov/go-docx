@@ -148,6 +148,38 @@ func (t *Table) AddRow() *TableRow {
 	return row
 }
 
+// InsertRowAt inserts a new empty row at the given index (0..len). If index is out of range,
+// it will be clamped to the valid range. The new row will have the same number of columns as the table grid.
+func (t *Table) InsertRowAt(index int) *TableRow {
+	if index < 0 {
+		index = 0
+	}
+	if index > len(t.rows) {
+		index = len(t.rows)
+	}
+	cols := t.gridColumns
+	row := &TableRow{
+		table: t,
+		cells: make([]*TableCell, cols),
+	}
+	for i := 0; i < cols; i++ {
+		cell := &TableCell{
+			row:        row,
+			paragraphs: []*Paragraph{NewParagraph()},
+			width:      1440,
+			borders:    make(map[TableBorderSide]*TableBorder),
+		}
+		if len(cell.paragraphs) > 0 && cell.paragraphs[0] != nil {
+			cell.paragraphs[0].owner = t.owner
+		}
+		row.cells[i] = cell
+	}
+	t.rows = append(t.rows, nil)
+	copy(t.rows[index+1:], t.rows[index:])
+	t.rows[index] = row
+	return row
+}
+
 // SetBorder configures the border for the specified table side. An empty style clears the border.
 func (t *Table) SetBorder(side TableBorderSide, border TableBorder) {
 	if side == "" {
