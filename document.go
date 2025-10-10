@@ -85,6 +85,30 @@ func (d *Document) AddParagraph(text ...string) *Paragraph {
 	return d.docPart.AddParagraph(text...)
 }
 
+// AddPicture adds a new paragraph containing the specified image. Width and height are specified in EMUs.
+// Passing zero for either dimension will keep the aspect ratio using the source image dimensions.
+func (d *Document) AddPicture(path string, widthEMU, heightEMU int64) (*Paragraph, *Picture, error) {
+	if d.docPart == nil {
+		return nil, nil, fmt.Errorf("document has no main document part")
+	}
+	picture, err := d.docPart.addPictureFromFile(path, widthEMU, heightEMU)
+	if err != nil {
+		return nil, nil, err
+	}
+	paragraph := NewParagraph()
+	paragraph.owner = d.docPart
+	run := NewRun("")
+	run.owner = d.docPart
+	run.picture = picture
+	paragraph.runs = append(paragraph.runs, run)
+
+	d.docPart.paragraphs = append(d.docPart.paragraphs, paragraph)
+	d.docPart.bodyElements = append(d.docPart.bodyElements, documentElement{paragraph: paragraph})
+	d.docPart.updateXMLData()
+
+	return paragraph, picture, nil
+}
+
 // AddHeading adds a heading paragraph with the specified text and level
 // Level 0 creates a Title style, levels 1-9 create Heading styles
 func (d *Document) AddHeading(text string, level int) (*Paragraph, error) {

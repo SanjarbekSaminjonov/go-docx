@@ -1,6 +1,10 @@
 package docx
 
 import (
+	"image"
+	"image/color"
+	"image/png"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -237,9 +241,102 @@ func TestAddNumberedParagraphs(t *testing.T) {
 	if !strings.Contains(data, "w:numId=\"1\"") {
 		t.Fatal("expected numbering part to contain numId=1 definition")
 	}
-
 	if !strings.Contains(data, "w:numId=\"2\"") {
 		t.Fatal("expected numbering part to contain numId=2 definition")
+	}
+}
+
+func TestInlinePictureRoundTrip(t *testing.T) {
+	imgPath := filepath.Join(t.TempDir(), "sample.png")
+	createTestImage(t, imgPath, 4, 3)
+
+	doc := NewDocument()
+	paragraph := doc.AddParagraph("Logo ")
+	run := paragraph.AddRun("")
+	pic, err := run.AddPicture(imgPath, 0, 0)
+	if err != nil {
+		t.Fatalf("AddPicture on run failed: %v", err)
+	}
+	if pic == nil {
+		t.Fatalf("expected picture instance")
+	}
+	if !run.HasPicture() {
+		t.Fatalf("expected run to report picture")
+	}
+	if pic.RelationshipID() == "" {
+		t.Fatalf("expected relationship ID to be assigned")
+	}
+	if pic.WidthEMU() == 0 || pic.HeightEMU() == 0 {
+		t.Fatalf("expected non-zero image dimensions")
+	}
+	data, err := pic.ImageData()
+	if err != nil {
+		t.Fatalf("ImageData failed: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatalf("expected image bytes from ImageData")
+	}
+
+	_, docPic, err := doc.AddPicture(imgPath, 0, 0)
+	if err != nil {
+		t.Fatalf("Document.AddPicture failed: %v", err)
+	}
+	if docPic == nil {
+		t.Fatalf("expected document-level picture instance")
+	}
+
+	doc.docPart.updateXMLData()
+	if xml := string(doc.docPart.Part.Data); !strings.Contains(xml, "<w:drawing>") {
+		t.Fatalf("document XML missing drawing element")
+	}
+
+	output := filepath.Join(t.TempDir(), "inline-picture.docx")
+	if err := doc.SaveAs(output); err != nil {
+		t.Fatalf("SaveAs failed: %v", err)
+	}
+	if err := doc.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	reopened, err := OpenDocument(output)
+	if err != nil {
+		t.Fatalf("OpenDocument failed: %v", err)
+	}
+	defer reopened.Close()
+
+	var pictureRuns int
+	for _, para := range reopened.Paragraphs() {
+		for _, r := range para.Runs() {
+			if r.Picture() != nil {
+				pictureRuns++
+			}
+		}
+	}
+	if pictureRuns < 2 {
+		t.Fatalf("expected at least two picture runs after reopen, got %d", pictureRuns)
+	}
+
+	foundData := false
+	for _, para := range reopened.Paragraphs() {
+		for _, r := range para.Runs() {
+			if reopenedPic := r.Picture(); reopenedPic != nil {
+				bytes, err := reopenedPic.ImageData()
+				if err != nil {
+					t.Fatalf("reopened ImageData failed: %v", err)
+				}
+				if len(bytes) == 0 {
+					t.Fatalf("expected non-empty bytes for reopened picture")
+				}
+				foundData = true
+				break
+			}
+		}
+		if foundData {
+			break
+		}
+	}
+	if !foundData {
+		t.Fatalf("expected to read image data from reopened document")
 	}
 }
 
@@ -276,6 +373,48 @@ func TestParagraphSpacingAndIndentation(t *testing.T) {
 	left, right, first, hanging := paragraphs[0].Indentation()
 	if left != 720 || right != 360 || first != 0 || hanging != 0 {
 		t.Fatalf("unexpected indentation values: left=%d right=%d first=%d hanging=%d", left, right, first, hanging)
+	}
+}
+
+func TestParagraphKeepSettingsRoundTrip(t *testing.T) {
+	doc := NewDocument()
+	paragraph := doc.AddParagraph("Keep options")
+	paragraph.SetKeepWithNext(true)
+	paragraph.SetKeepLines(true)
+	paragraph.SetPageBreakBefore(true)
+	paragraph.SetWidowControl(false)
+
+	outputPath := filepath.Join(t.TempDir(), "keep-settings.docx")
+	if err := doc.SaveAs(outputPath); err != nil {
+		t.Fatalf("SaveAs failed: %v", err)
+	}
+	if err := doc.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	reopened, err := OpenDocument(outputPath)
+	if err != nil {
+		t.Fatalf("OpenDocument failed: %v", err)
+	}
+	defer reopened.Close()
+
+	paragraphs := reopened.Paragraphs()
+	if len(paragraphs) != 1 {
+		t.Fatalf("expected 1 paragraph, got %d", len(paragraphs))
+	}
+
+	reopenedParagraph := paragraphs[0]
+	if !reopenedParagraph.KeepWithNext() {
+		t.Fatalf("expected keep-with-next to be true")
+	}
+	if !reopenedParagraph.KeepLines() {
+		t.Fatalf("expected keep-lines to be true")
+	}
+	if !reopenedParagraph.PageBreakBefore() {
+		t.Fatalf("expected page-break-before to be true")
+	}
+	if reopenedParagraph.WidowControl() {
+		t.Fatalf("expected widow control to be false")
 	}
 }
 
@@ -424,5 +563,23 @@ func TestOpenDocumentParsesTables(t *testing.T) {
 
 	if reopenedTable.Row(1).Cell(1).Width() != 2400 {
 		t.Errorf("expected cell (1,1) width to be 2400, got %d", reopenedTable.Row(1).Cell(1).Width())
+	}
+}
+
+func createTestImage(t *testing.T, path string, width, height int) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			img.Set(x, y, color.RGBA{R: uint8(50 * (x + 1)), G: uint8(40 * (y + 1)), B: 200, A: 255})
+		}
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("failed to create test image: %v", err)
+	}
+	defer file.Close()
+	if err := png.Encode(file, img); err != nil {
+		t.Fatalf("failed to encode test image: %v", err)
 	}
 }

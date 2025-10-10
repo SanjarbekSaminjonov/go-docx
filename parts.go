@@ -17,11 +17,12 @@ type documentElement struct {
 
 type DocumentPart struct {
 	*Part
-	pkg          *Package
-	paragraphs   []*Paragraph
-	tables       []*Table
-	sections     []*Section
-	bodyElements []documentElement
+	pkg            *Package
+	paragraphs     []*Paragraph
+	tables         []*Table
+	sections       []*Section
+	bodyElements   []documentElement
+	drawingCounter int
 }
 
 // NewDocumentPart creates a new document part
@@ -55,6 +56,7 @@ func (dp *DocumentPart) loadFromXML() error {
 	dp.tables = make([]*Table, 0)
 	dp.sections = make([]*Section, 0)
 	dp.bodyElements = make([]documentElement, 0)
+	dp.drawingCounter = 0
 
 	if dp.Part == nil || len(dp.Part.Data) == 0 {
 		return nil
@@ -192,6 +194,26 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 				}
 			case "numPr":
 				if err := parseParagraphNumbering(decoder, paragraph); err != nil {
+					return nil, err
+				}
+			case "keepNext":
+				paragraph.keepWithNext = parseOnOff(t.Attr)
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			case "keepLines":
+				paragraph.keepLines = parseOnOff(t.Attr)
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			case "pageBreakBefore":
+				paragraph.pageBreakBefore = parseOnOff(t.Attr)
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			case "widowControl":
+				paragraph.widowControl = parseOnOff(t.Attr)
+				if err := skipElement(decoder, t); err != nil {
 					return nil, err
 				}
 			case "tabs":
@@ -336,6 +358,18 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 					applyHyperlinkContext(currentRun)
 				}
 				currentRun.AddBreak(mapBreakType(attrValue(t.Attr, "type")))
+			case "drawing":
+				if currentRun == nil {
+					currentRun = NewRun("")
+					applyHyperlinkContext(currentRun)
+				}
+				picture, err := parseDrawing(decoder, t, dp)
+				if err != nil {
+					return nil, err
+				}
+				if picture != nil {
+					currentRun.picture = picture
+				}
 			default:
 				if err := skipElement(decoder, t); err != nil {
 					return nil, err
@@ -366,6 +400,69 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 			}
 		}
 	}
+}
+
+func parseDrawing(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart) (*Picture, error) {
+	picture := &Picture{docPart: dp}
+	depth := 1
+
+	for depth > 0 {
+		tok, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+			switch t.Name.Local {
+			case "extent":
+				if val := attrValue(t.Attr, "cx"); val != "" {
+					if cx, err := strconv.ParseInt(val, 10, 64); err == nil {
+						picture.widthEMU = cx
+					}
+				}
+				if val := attrValue(t.Attr, "cy"); val != "" {
+					if cy, err := strconv.ParseInt(val, 10, 64); err == nil {
+						picture.heightEMU = cy
+					}
+				}
+			case "docPr":
+				if val := attrValue(t.Attr, "id"); val != "" {
+					if id, err := strconv.Atoi(val); err == nil {
+						picture.docPrID = id
+					}
+				}
+				if name := attrValue(t.Attr, "name"); name != "" {
+					picture.name = name
+				}
+				if descr := attrValue(t.Attr, "descr"); descr != "" {
+					picture.description = descr
+				}
+			case "blip":
+				if relID := attrValue(t.Attr, "embed"); relID != "" {
+					picture.relID = relID
+				}
+			}
+		case xml.EndElement:
+			depth--
+			if depth == 0 {
+				break
+			}
+		}
+	}
+
+	if picture.relID != "" && dp != nil {
+		if target, _, ok := dp.relationshipTarget(picture.relID); ok {
+			picture.target = target
+		}
+	}
+
+	if dp != nil && picture.docPrID > dp.drawingCounter {
+		dp.drawingCounter = picture.docPrID
+	}
+
+	return picture, nil
 }
 
 func parseParagraphTabs(decoder *xml.Decoder, start xml.StartElement) ([]TabStop, error) {
@@ -637,6 +734,18 @@ func attrValue(attrs []xml.Attr, key string) string {
 	return ""
 }
 
+func parseOnOff(attrs []xml.Attr) *bool {
+	val := strings.ToLower(attrValue(attrs, "val"))
+	switch val {
+	case "", "1", "true", "on":
+		return boolPtr(true)
+	case "0", "false", "off":
+		return boolPtr(false)
+	default:
+		return boolPtr(true)
+	}
+}
+
 func mapParagraphAlignment(val string) WDAlignParagraph {
 	switch strings.ToLower(val) {
 	case "center":
@@ -805,6 +914,11 @@ func (dp *DocumentPart) relationshipTarget(relID string) (string, string, bool) 
 		}
 	}
 	return "", "", false
+}
+
+func (dp *DocumentPart) nextDrawingID() int {
+	dp.drawingCounter++
+	return dp.drawingCounter
 }
 
 // StylesPart represents the styles part of a Word document

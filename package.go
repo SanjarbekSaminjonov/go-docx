@@ -21,6 +21,7 @@ type Package struct {
 	coreProps           *CoreProperties
 	contentTypes        map[string]string
 	defaultContentTypes map[string]string
+	mediaCounter        int
 }
 
 // Part represents a part within the OpenXML package
@@ -47,6 +48,7 @@ func NewPackage() *Package {
 		coreProps:           NewCoreProperties(),
 		contentTypes:        make(map[string]string),
 		defaultContentTypes: make(map[string]string),
+		mediaCounter:        0,
 	}
 
 	// Add default parts
@@ -69,6 +71,7 @@ func OpenPackage(filePath string) (*Package, error) {
 		coreProps:           NewCoreProperties(),
 		contentTypes:        make(map[string]string),
 		defaultContentTypes: make(map[string]string),
+		mediaCounter:        0,
 	}
 
 	// Load all parts from the zip file
@@ -372,6 +375,22 @@ func (p *Package) loadParts() error {
 			ContentType: p.lookupContentType(file.Name),
 		}
 		p.parts[file.Name] = part
+
+		if strings.HasPrefix(file.Name, "word/media/") {
+			base := strings.TrimPrefix(file.Name, "word/media/")
+			if strings.HasPrefix(base, "image") {
+				name := strings.TrimPrefix(base, "image")
+				dot := strings.Index(name, ".")
+				if dot > 0 {
+					numStr := name[:dot]
+					if n, err := strconv.Atoi(numStr); err == nil {
+						if n > p.mediaCounter {
+							p.mediaCounter = n
+						}
+					}
+				}
+			}
+		}
 	}
 
 	return nil
@@ -513,4 +532,25 @@ func (p *Package) nextRelationshipID(baseURI string) string {
 		}
 	}
 	return fmt.Sprintf("rId%d", maxID+1)
+}
+
+func (p *Package) nextImageName(ext string) string {
+	p.mediaCounter++
+	return fmt.Sprintf("image%d%s", p.mediaCounter, ext)
+}
+
+func (p *Package) addImagePart(data []byte, ext, contentType string) (string, error) {
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
+	name := p.nextImageName(ext)
+	uri := path.Join("word", "media", name)
+	part := &Part{
+		URI:         uri,
+		ContentType: contentType,
+		Data:        data,
+	}
+	p.parts[uri] = part
+	p.contentTypes["/"+uri] = contentType
+	return uri, nil
 }

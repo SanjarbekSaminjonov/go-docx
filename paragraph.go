@@ -23,6 +23,10 @@ type Paragraph struct {
 	spacingLine      int
 	spacingLineRule  string
 	tabStops         []TabStop
+	keepWithNext     *bool
+	keepLines        *bool
+	pageBreakBefore  *bool
+	widowControl     *bool
 }
 
 // TabStop represents a paragraph tab stop configuration
@@ -47,6 +51,20 @@ func (p *Paragraph) AddRun(text string) *Run {
 	run.owner = p.owner
 	p.runs = append(p.runs, run)
 	return run
+}
+
+// AddPicture creates a new run containing an inline picture
+func (p *Paragraph) AddPicture(path string, widthEMU, heightEMU int64) (*Run, *Picture, error) {
+	if p.owner == nil {
+		return nil, nil, fmt.Errorf("paragraph is not attached to a document")
+	}
+	run := p.AddRun("")
+	picture, err := run.AddPicture(path, widthEMU, heightEMU)
+	if err != nil {
+		p.runs = p.runs[:len(p.runs)-1]
+		return nil, nil, err
+	}
+	return run, picture, nil
 }
 
 // AddHyperlink adds a run with hyperlink formatting
@@ -157,6 +175,10 @@ func (p *Paragraph) Clear() {
 	p.spacingLine = 0
 	p.spacingLineRule = ""
 	p.tabStops = p.tabStops[:0]
+	p.keepWithNext = nil
+	p.keepLines = nil
+	p.pageBreakBefore = nil
+	p.widowControl = nil
 }
 
 // ToXML converts the paragraph to WordprocessingML XML
@@ -167,7 +189,7 @@ func (p *Paragraph) ToXML() string {
 	}
 
 	var pPr string
-	if p.style != "" || p.alignment != WDAlignParagraphLeft || p.numberingApplied || p.hasSpacing() || p.hasIndentation() || p.hasTabStops() {
+	if p.style != "" || p.alignment != WDAlignParagraphLeft || p.numberingApplied || p.hasSpacing() || p.hasIndentation() || p.hasTabStops() || p.hasKeepSettings() {
 		var pPrContent strings.Builder
 
 		if p.style != "" {
@@ -192,6 +214,10 @@ func (p *Paragraph) ToXML() string {
 
 		if p.hasTabStops() {
 			pPrContent.WriteString(p.tabsXML())
+		}
+
+		if p.hasKeepSettings() {
+			pPrContent.WriteString(p.keepSettingsXML())
 		}
 
 		pPr = fmt.Sprintf(`<w:pPr>%s</w:pPr>`, pPrContent.String())
@@ -242,6 +268,78 @@ func (p *Paragraph) indentationXML() string {
 	}
 
 	return fmt.Sprintf(`<w:ind %s/>`, strings.Join(attrs, " "))
+}
+
+// SetKeepWithNext sets the keep-with-next property (prevents a page break between this and the following paragraph)
+func (p *Paragraph) SetKeepWithNext(enabled bool) {
+	p.keepWithNext = boolPtr(enabled)
+}
+
+// KeepWithNext returns whether the keep-with-next property is enabled
+func (p *Paragraph) KeepWithNext() bool {
+	if p.keepWithNext == nil {
+		return false
+	}
+	return *p.keepWithNext
+}
+
+// ClearKeepWithNext clears the keep-with-next override restoring the default behavior
+func (p *Paragraph) ClearKeepWithNext() {
+	p.keepWithNext = nil
+}
+
+// SetKeepLines sets whether all lines in the paragraph must stay on the same page
+func (p *Paragraph) SetKeepLines(enabled bool) {
+	p.keepLines = boolPtr(enabled)
+}
+
+// KeepLines returns whether the keep lines property is enabled
+func (p *Paragraph) KeepLines() bool {
+	if p.keepLines == nil {
+		return false
+	}
+	return *p.keepLines
+}
+
+// ClearKeepLines clears the keep lines override restoring the default behavior
+func (p *Paragraph) ClearKeepLines() {
+	p.keepLines = nil
+}
+
+// SetPageBreakBefore forces a page break before this paragraph when enabled
+func (p *Paragraph) SetPageBreakBefore(enabled bool) {
+	p.pageBreakBefore = boolPtr(enabled)
+}
+
+// PageBreakBefore reports whether a page break is forced before the paragraph
+func (p *Paragraph) PageBreakBefore() bool {
+	if p.pageBreakBefore == nil {
+		return false
+	}
+	return *p.pageBreakBefore
+}
+
+// ClearPageBreakBefore clears the page-break-before override
+func (p *Paragraph) ClearPageBreakBefore() {
+	p.pageBreakBefore = nil
+}
+
+// SetWidowControl sets widow control (keep minimum lines on a page). Passing false disables the control.
+func (p *Paragraph) SetWidowControl(enabled bool) {
+	p.widowControl = boolPtr(enabled)
+}
+
+// WidowControl returns whether widow control is enabled. If not explicitly set, it defaults to true per Wordprocessing defaults.
+func (p *Paragraph) WidowControl() bool {
+	if p.widowControl == nil {
+		return true
+	}
+	return *p.widowControl
+}
+
+// ClearWidowControl clears the widow control override, reverting to the default
+func (p *Paragraph) ClearWidowControl() {
+	p.widowControl = nil
 }
 
 // AddTabStop adds a tab stop to the paragraph
@@ -308,6 +406,39 @@ func (p *Paragraph) tabsXML() string {
 	return builder.String()
 }
 
+func (p *Paragraph) hasKeepSettings() bool {
+	return p.keepWithNext != nil || p.keepLines != nil || p.pageBreakBefore != nil || p.widowControl != nil
+}
+
+func (p *Paragraph) keepSettingsXML() string {
+	var builder strings.Builder
+	if p.keepWithNext != nil {
+		builder.WriteString(onOffXML("w:keepNext", *p.keepWithNext))
+	}
+	if p.keepLines != nil {
+		builder.WriteString(onOffXML("w:keepLines", *p.keepLines))
+	}
+	if p.pageBreakBefore != nil {
+		builder.WriteString(onOffXML("w:pageBreakBefore", *p.pageBreakBefore))
+	}
+	if p.widowControl != nil {
+		builder.WriteString(onOffXML("w:widowControl", *p.widowControl))
+	}
+	return builder.String()
+}
+
+func onOffXML(tag string, value bool) string {
+	if value {
+		return fmt.Sprintf(`<%s/>`, tag)
+	}
+	return fmt.Sprintf(`<%s w:val="0"/>`, tag)
+}
+
+func boolPtr(v bool) *bool {
+	b := v
+	return &b
+}
+
 // Run represents a run of text with consistent formatting
 type Run struct {
 	owner           *DocumentPart
@@ -331,6 +462,7 @@ type Run struct {
 	outline         bool
 	emboss          bool
 	imprint         bool
+	picture         *Picture
 }
 
 // NewRun creates a new run with the specified text
@@ -459,6 +591,30 @@ func (r *Run) HyperlinkURL() string {
 // HyperlinkAnchor returns the internal hyperlink anchor if present
 func (r *Run) HyperlinkAnchor() string {
 	return r.hyperlinkAnchor
+}
+
+// HasPicture reports whether the run contains an inline picture
+func (r *Run) HasPicture() bool {
+	return r.picture != nil
+}
+
+// Picture returns the picture embedded in the run, if any
+func (r *Run) Picture() *Picture {
+	return r.picture
+}
+
+// AddPicture embeds an image into the run. Width and height are specified in EMUs.
+// Pass zero for either dimension to preserve the image's aspect ratio using the source size.
+func (r *Run) AddPicture(path string, widthEMU, heightEMU int64) (*Picture, error) {
+	if r.owner == nil {
+		return nil, fmt.Errorf("run is not attached to a document")
+	}
+	picture, err := r.owner.addPictureFromFile(path, widthEMU, heightEMU)
+	if err != nil {
+		return nil, err
+	}
+	r.picture = picture
+	return picture, nil
 }
 
 // AddBreak adds a break to the run
@@ -622,35 +778,35 @@ func (r *Run) ToXML() string {
 		rPrXML = fmt.Sprintf("<w:rPr>%s</w:rPr>", rPr.String())
 	}
 
-	// Escape text content
-	text := strings.ReplaceAll(r.text, "&", "&amp;")
-	text = strings.ReplaceAll(text, "<", "&lt;")
-	text = strings.ReplaceAll(text, ">", "&gt;")
+	var content strings.Builder
 
-	// Add break if needed
-	var breakXML string
+	if r.text != "" {
+		escaped := strings.ReplaceAll(r.text, "&", "&amp;")
+		escaped = strings.ReplaceAll(escaped, "<", "&lt;")
+		escaped = strings.ReplaceAll(escaped, ">", "&gt;")
+		content.WriteString(fmt.Sprintf(`<w:t>%s</w:t>`, escaped))
+	}
+
+	if r.picture != nil {
+		content.WriteString(r.picture.toXML())
+	}
+
 	if r.hasBreak {
 		switch r.breakType {
 		case BreakTypePage:
-			breakXML = `<w:br w:type="page"/>`
+			content.WriteString(`<w:br w:type="page"/>`)
 		case BreakTypeColumn:
-			breakXML = `<w:br w:type="column"/>`
-		case BreakTypeText:
-			breakXML = `<w:br/>`
+			content.WriteString(`<w:br w:type="column"/>`)
+		default:
+			content.WriteString(`<w:br/>`)
 		}
 	}
 
-	var runXML string
-	switch {
-	case r.text != "" && breakXML != "":
-		runXML = fmt.Sprintf(`<w:r>%s<w:t>%s</w:t>%s</w:r>`, rPrXML, text, breakXML)
-	case r.text != "":
-		runXML = fmt.Sprintf(`<w:r>%s<w:t>%s</w:t></w:r>`, rPrXML, text)
-	case breakXML != "":
-		runXML = fmt.Sprintf(`<w:r>%s%s</w:r>`, rPrXML, breakXML)
-	default:
-		runXML = fmt.Sprintf(`<w:r>%s<w:t>%s</w:t></w:r>`, rPrXML, text)
+	if content.Len() == 0 {
+		content.WriteString("<w:t/>")
 	}
+
+	runXML := fmt.Sprintf(`<w:r>%s%s</w:r>`, rPrXML, content.String())
 
 	if r.HasHyperlink() {
 		return r.wrapWithHyperlink(runXML)
