@@ -22,6 +22,8 @@ type Package struct {
 	contentTypes        map[string]string
 	defaultContentTypes map[string]string
 	mediaCounter        int
+	headerCounter       int
+	footerCounter       int
 }
 
 // Part represents a part within the OpenXML package
@@ -49,6 +51,8 @@ func NewPackage() *Package {
 		contentTypes:        make(map[string]string),
 		defaultContentTypes: make(map[string]string),
 		mediaCounter:        0,
+		headerCounter:       0,
+		footerCounter:       0,
 	}
 
 	// Add default parts
@@ -72,6 +76,8 @@ func OpenPackage(filePath string) (*Package, error) {
 		contentTypes:        make(map[string]string),
 		defaultContentTypes: make(map[string]string),
 		mediaCounter:        0,
+		headerCounter:       0,
+		footerCounter:       0,
 	}
 
 	// Load all parts from the zip file
@@ -376,6 +382,19 @@ func (p *Package) loadParts() error {
 		}
 		p.parts[file.Name] = part
 
+		if strings.HasPrefix(file.Name, "word/header") && strings.HasSuffix(file.Name, ".xml") {
+			name := strings.TrimSuffix(strings.TrimPrefix(file.Name, "word/header"), ".xml")
+			if n, err := strconv.Atoi(name); err == nil && n > p.headerCounter {
+				p.headerCounter = n
+			}
+		}
+		if strings.HasPrefix(file.Name, "word/footer") && strings.HasSuffix(file.Name, ".xml") {
+			name := strings.TrimSuffix(strings.TrimPrefix(file.Name, "word/footer"), ".xml")
+			if n, err := strconv.Atoi(name); err == nil && n > p.footerCounter {
+				p.footerCounter = n
+			}
+		}
+
 		if strings.HasPrefix(file.Name, "word/media/") {
 			base := strings.TrimPrefix(file.Name, "word/media/")
 			if strings.HasPrefix(base, "image") {
@@ -496,6 +515,9 @@ func (p *Package) ensureRelationship(baseURI, relType, target string) string {
 }
 
 func (p *Package) ensureRelationshipWithMode(baseURI, relType, target, targetMode string) string {
+	if p.relations == nil {
+		p.relations = make(map[string][]*Relationship)
+	}
 	rels := p.relations[baseURI]
 	for _, rel := range rels {
 		if rel.Type == relType && rel.Target == target {
@@ -515,7 +537,10 @@ func (p *Package) ensureRelationshipWithMode(baseURI, relType, target, targetMod
 	if targetMode != "" {
 		rel.TargetMode = targetMode
 	}
-	p.relations[baseURI] = append(rels, rel)
+	if _, ok := p.relations[baseURI]; !ok {
+		p.relations[baseURI] = make([]*Relationship, 0)
+	}
+	p.relations[baseURI] = append(p.relations[baseURI], rel)
 	return id
 }
 
@@ -553,4 +578,38 @@ func (p *Package) addImagePart(data []byte, ext, contentType string) (string, er
 	p.parts[uri] = part
 	p.contentTypes["/"+uri] = contentType
 	return uri, nil
+}
+
+func (p *Package) newHeaderPart() *Part {
+	p.headerCounter++
+	name := fmt.Sprintf("word/header%d.xml", p.headerCounter)
+	part := &Part{
+		URI:         name,
+		ContentType: ContentTypeWMLHeader,
+		Data: []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>`),
+	}
+	p.parts[name] = part
+	p.contentTypes["/"+name] = ContentTypeWMLHeader
+	if _, ok := p.relations[name]; !ok {
+		p.relations[name] = make([]*Relationship, 0)
+	}
+	return part
+}
+
+func (p *Package) newFooterPart() *Part {
+	p.footerCounter++
+	name := fmt.Sprintf("word/footer%d.xml", p.footerCounter)
+	part := &Part{
+		URI:         name,
+		ContentType: ContentTypeWMLFooter,
+		Data: []byte(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/>`),
+	}
+	p.parts[name] = part
+	p.contentTypes["/"+name] = ContentTypeWMLFooter
+	if _, ok := p.relations[name]; !ok {
+		p.relations[name] = make([]*Relationship, 0)
+	}
+	return part
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"path"
 	"strconv"
 	"strings"
 )
@@ -23,6 +24,12 @@ type DocumentPart struct {
 	sections       []*Section
 	bodyElements   []documentElement
 	drawingCounter int
+	headers        []*Header
+	footers        []*Footer
+	headerByRelID  map[string]*Header
+	footerByRelID  map[string]*Footer
+	headerByTarget map[string]*Header
+	footerByTarget map[string]*Footer
 }
 
 // NewDocumentPart creates a new document part
@@ -57,6 +64,12 @@ func (dp *DocumentPart) loadFromXML() error {
 	dp.sections = make([]*Section, 0)
 	dp.bodyElements = make([]documentElement, 0)
 	dp.drawingCounter = 0
+	dp.headers = make([]*Header, 0)
+	dp.footers = make([]*Footer, 0)
+	dp.headerByRelID = make(map[string]*Header)
+	dp.footerByRelID = make(map[string]*Footer)
+	dp.headerByTarget = make(map[string]*Header)
+	dp.footerByTarget = make(map[string]*Footer)
 
 	if dp.Part == nil || len(dp.Part.Data) == 0 {
 		return nil
@@ -92,12 +105,19 @@ func (dp *DocumentPart) loadFromXML() error {
 				dp.tables = append(dp.tables, table)
 				dp.bodyElements = append(dp.bodyElements, documentElement{table: table})
 			case "sectPr":
-				dp.sections = append(dp.sections, NewSection(SectionStartContinuous))
-				if err := skipElement(decoder, t); err != nil {
-					return fmt.Errorf("failed to skip sectPr: %w", err)
+				section, err := parseSectionProperties(decoder, t, dp)
+				if err != nil {
+					return fmt.Errorf("failed to parse section: %w", err)
 				}
+				dp.sections = append(dp.sections, section)
 			}
 		}
+	}
+
+	if len(dp.sections) == 0 {
+		section := NewSection(SectionStartContinuous)
+		section.setOwner(dp)
+		dp.sections = append(dp.sections, section)
 	}
 
 	return nil
@@ -865,6 +885,201 @@ func parseTableCellProperties(decoder *xml.Decoder, start xml.StartElement, cell
 	}
 }
 
+func parseSectionProperties(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart) (*Section, error) {
+	section := NewSection(SectionStartContinuous)
+	section.setOwner(dp)
+
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "type":
+				if val := attrValue(t.Attr, "val"); val != "" {
+					section.startType = SectionStartType(val)
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			case "pgSz":
+				if val := attrValue(t.Attr, "w"); val != "" {
+					if w, err := strconv.Atoi(val); err == nil {
+						section.pageWidth = w
+					}
+				}
+				if val := attrValue(t.Attr, "h"); val != "" {
+					if h, err := strconv.Atoi(val); err == nil {
+						section.pageHeight = h
+					}
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			case "pgMar":
+				if val := attrValue(t.Attr, "top"); val != "" {
+					if v, err := strconv.Atoi(val); err == nil {
+						section.marginTop = v
+					}
+				}
+				if val := attrValue(t.Attr, "right"); val != "" {
+					if v, err := strconv.Atoi(val); err == nil {
+						section.marginRight = v
+					}
+				}
+				if val := attrValue(t.Attr, "bottom"); val != "" {
+					if v, err := strconv.Atoi(val); err == nil {
+						section.marginBottom = v
+					}
+				}
+				if val := attrValue(t.Attr, "left"); val != "" {
+					if v, err := strconv.Atoi(val); err == nil {
+						section.marginLeft = v
+					}
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			case "headerReference":
+				typeVal := HeaderType(attrValue(t.Attr, "type"))
+				if typeVal == "" {
+					typeVal = HeaderTypeDefault
+				}
+				relID := attrValue(t.Attr, "id")
+				if relID != "" && dp != nil {
+					header, err := dp.headerFromRelationship(relID)
+					if err != nil {
+						return nil, err
+					}
+					if header != nil {
+						section.headerRefs[typeVal] = &headerReference{typeValue: typeVal, relID: relID, header: header}
+					}
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			case "footerReference":
+				typeVal := FooterType(attrValue(t.Attr, "type"))
+				if typeVal == "" {
+					typeVal = FooterTypeDefault
+				}
+				relID := attrValue(t.Attr, "id")
+				if relID != "" && dp != nil {
+					footer, err := dp.footerFromRelationship(relID)
+					if err != nil {
+						return nil, err
+					}
+					if footer != nil {
+						section.footerRefs[typeVal] = &footerReference{typeValue: typeVal, relID: relID, footer: footer}
+					}
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			default:
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return section, nil
+			}
+		}
+	}
+}
+
+func (dp *DocumentPart) headerFromRelationship(relID string) (*Header, error) {
+	if header, ok := dp.headerByRelID[relID]; ok {
+		return header, nil
+	}
+	if dp.pkg == nil {
+		return nil, fmt.Errorf("document part is not associated with a package")
+	}
+	target, _, ok := dp.relationshipTarget(relID)
+	if !ok {
+		return nil, fmt.Errorf("relationship %s not found", relID)
+	}
+	fullPath := resolveRelationshipTarget(dp.Part.URI, target)
+	if header, ok := dp.headerByTarget[fullPath]; ok {
+		dp.headerByRelID[relID] = header
+		return header, nil
+	}
+	part, exists := dp.pkg.parts[fullPath]
+	if !exists {
+		return nil, fmt.Errorf("header part %s not found", fullPath)
+	}
+	header := newHeader(dp, part)
+	if err := header.loadFromXML(); err != nil {
+		return nil, fmt.Errorf("failed to load header %s: %w", fullPath, err)
+	}
+	dp.headers = append(dp.headers, header)
+	dp.headerByTarget[fullPath] = header
+	dp.headerByRelID[relID] = header
+	return header, nil
+}
+
+func (dp *DocumentPart) footerFromRelationship(relID string) (*Footer, error) {
+	if footer, ok := dp.footerByRelID[relID]; ok {
+		return footer, nil
+	}
+	if dp.pkg == nil {
+		return nil, fmt.Errorf("document part is not associated with a package")
+	}
+	target, _, ok := dp.relationshipTarget(relID)
+	if !ok {
+		return nil, fmt.Errorf("relationship %s not found", relID)
+	}
+	fullPath := resolveRelationshipTarget(dp.Part.URI, target)
+	if footer, ok := dp.footerByTarget[fullPath]; ok {
+		dp.footerByRelID[relID] = footer
+		return footer, nil
+	}
+	part, exists := dp.pkg.parts[fullPath]
+	if !exists {
+		return nil, fmt.Errorf("footer part %s not found", fullPath)
+	}
+	footer := newFooter(dp, part)
+	if err := footer.loadFromXML(); err != nil {
+		return nil, fmt.Errorf("failed to load footer %s: %w", fullPath, err)
+	}
+	dp.footers = append(dp.footers, footer)
+	dp.footerByTarget[fullPath] = footer
+	dp.footerByRelID[relID] = footer
+	return footer, nil
+}
+
+func (dp *DocumentPart) createHeaderPart() (*Header, string, error) {
+	if dp == nil || dp.pkg == nil {
+		return nil, "", fmt.Errorf("document part is not associated with a package")
+	}
+	part := dp.pkg.newHeaderPart()
+	header := newHeader(dp, part)
+	dp.headers = append(dp.headers, header)
+	dp.headerByTarget[part.URI] = header
+	target := path.Base(part.URI)
+	relID := dp.pkg.ensureRelationship(dp.Part.URI, RelTypeHeader, target)
+	dp.headerByRelID[relID] = header
+	return header, relID, nil
+}
+
+func (dp *DocumentPart) createFooterPart() (*Footer, string, error) {
+	if dp == nil || dp.pkg == nil {
+		return nil, "", fmt.Errorf("document part is not associated with a package")
+	}
+	part := dp.pkg.newFooterPart()
+	footer := newFooter(dp, part)
+	dp.footers = append(dp.footers, footer)
+	dp.footerByTarget[part.URI] = footer
+	target := path.Base(part.URI)
+	relID := dp.pkg.ensureRelationship(dp.Part.URI, RelTypeFooter, target)
+	dp.footerByRelID[relID] = footer
+	return footer, relID, nil
+}
+
 func parseTableProperties(decoder *xml.Decoder, start xml.StartElement, table *Table) error {
 	for {
 		tok, err := decoder.Token()
@@ -1160,6 +1375,7 @@ func (dp *DocumentPart) AddTable(rows, cols int) *Table {
 // AddSection adds a new section to the document
 func (dp *DocumentPart) AddSection(startType SectionStartType) *Section {
 	section := NewSection(startType)
+	section.setOwner(dp)
 	dp.sections = append(dp.sections, section)
 
 	// Update the XML data

@@ -675,6 +675,83 @@ func TestOpenDocumentParsesTables(t *testing.T) {
 	}
 }
 
+func TestHeaderFooterRoundTrip(t *testing.T) {
+	doc := NewDocument()
+	sections := doc.Sections()
+	if len(sections) == 0 {
+		t.Fatalf("expected at least one section")
+	}
+	header, err := sections[0].Header()
+	if err != nil {
+		t.Fatalf("Header() failed: %v", err)
+	}
+	footer, err := sections[0].Footer()
+	if err != nil {
+		t.Fatalf("Footer() failed: %v", err)
+	}
+	header.AddParagraph("Primary header text")
+	footer.AddParagraph("Primary footer text")
+	doc.docPart.updateXMLData()
+	mainXML := string(doc.docPart.Part.Data)
+	if !strings.Contains(mainXML, "<w:headerReference") {
+		t.Fatalf("expected document XML to contain header reference")
+	}
+	if !strings.Contains(mainXML, "<w:footerReference") {
+		t.Fatalf("expected document XML to contain footer reference")
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "header-footer.docx")
+	if err := doc.SaveAs(outputPath); err != nil {
+		t.Fatalf("SaveAs failed: %v", err)
+	}
+	if err := doc.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	reopened, err := OpenDocument(outputPath)
+	if err != nil {
+		t.Fatalf("OpenDocument failed: %v", err)
+	}
+	defer reopened.Close()
+
+	reopenedSections := reopened.Sections()
+	if len(reopenedSections) == 0 {
+		t.Fatalf("expected reopened document to have sections")
+	}
+	reopenedHeader, err := reopenedSections[0].Header()
+	if err != nil {
+		t.Fatalf("Header() on reopened doc failed: %v", err)
+	}
+	reopenedFooter, err := reopenedSections[0].Footer()
+	if err != nil {
+		t.Fatalf("Footer() on reopened doc failed: %v", err)
+	}
+
+	headerParas := reopenedHeader.Paragraphs()
+	if len(headerParas) != 1 {
+		t.Fatalf("expected 1 header paragraph, got %d", len(headerParas))
+	}
+	if headerParas[0].Text() != "Primary header text" {
+		t.Fatalf("unexpected header text: %q", headerParas[0].Text())
+	}
+	footerParas := reopenedFooter.Paragraphs()
+	if len(footerParas) != 1 {
+		t.Fatalf("expected 1 footer paragraph, got %d", len(footerParas))
+	}
+	if footerParas[0].Text() != "Primary footer text" {
+		t.Fatalf("unexpected footer text: %q", footerParas[0].Text())
+	}
+
+	headerXML := string(reopenedHeader.part.Data)
+	if !strings.Contains(headerXML, "Primary header text") {
+		t.Fatalf("expected header XML to contain header text")
+	}
+	footerXML := string(reopenedFooter.part.Data)
+	if !strings.Contains(footerXML, "Primary footer text") {
+		t.Fatalf("expected footer XML to contain footer text")
+	}
+}
+
 func TestTableFormattingRoundTrip(t *testing.T) {
 	doc := NewDocument()
 	table := doc.AddTable(2, 2)

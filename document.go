@@ -184,6 +184,50 @@ func (d *Document) Sections() []*Section {
 	return d.docPart.Sections()
 }
 
+// Header returns the default header for the first section, creating both if necessary.
+func (d *Document) Header() (*Header, error) {
+	return d.HeaderOfType(HeaderTypeDefault)
+}
+
+// HeaderOfType returns the header of the specified type for the first section.
+func (d *Document) HeaderOfType(headerType HeaderType) (*Header, error) {
+	section, err := d.firstOrNewSection()
+	if err != nil {
+		return nil, err
+	}
+	return section.HeaderOfType(headerType)
+}
+
+// Footer returns the default footer for the first section, creating both if necessary.
+func (d *Document) Footer() (*Footer, error) {
+	return d.FooterOfType(FooterTypeDefault)
+}
+
+// FooterOfType returns the footer of the specified type for the first section.
+func (d *Document) FooterOfType(footerType FooterType) (*Footer, error) {
+	section, err := d.firstOrNewSection()
+	if err != nil {
+		return nil, err
+	}
+	return section.FooterOfType(footerType)
+}
+
+func (d *Document) firstOrNewSection() (*Section, error) {
+	if d.docPart == nil {
+		return nil, fmt.Errorf("document has no main document part")
+	}
+	sections := d.docPart.Sections()
+	if len(sections) == 0 {
+		section := d.docPart.AddSection(SectionStartContinuous)
+		sections = d.docPart.Sections()
+		if len(sections) == 0 {
+			return nil, fmt.Errorf("failed to create section")
+		}
+		return section, nil
+	}
+	return sections[0], nil
+}
+
 // Numbering returns the document's numbering helper
 func (d *Document) Numbering() *Numbering {
 	return d.numbering
