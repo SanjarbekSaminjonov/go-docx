@@ -2,6 +2,33 @@
 
 Go-DOCX is a comprehensive Go library for creating and manipulating Microsoft Word (.docx) documents. It is inspired by and provides feature parity (~75%) with the popular python-docx library, offering a type-safe, high-performance alternative for Go developers.
 
+## 🆕 What's New
+
+- New: Table.InsertRowAt(index)
+    - Insert an empty row at an exact position without disturbing existing layout (useful for duplicating a template row directly below it).
+- Improved: Mixed orientations preserved
+    - We parse and emit w:orient on w:pgSz to keep portrait/landscape exactly as in the template.
+    - Body elements are serialized in the original order; if the body has no sectPr, we emit one at the end as a fallback.
+- New: Paragraph-level section breaks
+    - w:sectPr inside w:pPr is parsed and re-emitted, preserving section breaks defined at paragraph level.
+- Behavioral: SaveAs refreshes document XML
+    - Before saving, the main document XML is regenerated to include all latest changes (images, tables, paragraphs).
+
+Quick examples:
+
+```go
+// 1) Insert a row after a template row
+table := doc.AddTable(2, 3)
+// ... fill header in row 0 and example/template row in row 1
+newRow := table.InsertRowAt(2) // insert right after template row (index 1)
+_ = newRow // fill cells as needed
+
+// 2) Preserve landscape orientation
+sec := doc.AddSection(docx.WDSectionNewPage)
+// Set page size with width > height; ToXML will emit w:orient="landscape"
+sec.SetPageSize(16838, 11906)
+```
+
 ## ✨ Features
 
 ### Core Document Features

@@ -18,6 +18,9 @@ type Section struct {
 	owner        *DocumentPart
 	headerRefs   map[HeaderType]*headerReference
 	footerRefs   map[FooterType]*footerReference
+	// orientation is the explicit WordprocessingML orientation attribute ("portrait"|"landscape").
+	// If empty, it will be inferred from pageWidth/pageHeight when serializing.
+	orientation string
 }
 
 // NewSection creates a new section with the specified start type
@@ -200,7 +203,14 @@ func (s *Section) ToXML() string {
 	if footerElems := s.footerReferenceElements(); len(footerElems) > 0 {
 		elements = append(elements, footerElems...)
 	}
-	elements = append(elements, fmt.Sprintf(`<w:pgSz w:w="%d" w:h="%d"/>`, s.pageWidth, s.pageHeight))
+	// Emit explicit orientation when set, otherwise infer from page size.
+	orient := ""
+	if s.orientation != "" {
+		orient = fmt.Sprintf(` w:orient="%s"`, s.orientation)
+	} else if s.pageWidth > s.pageHeight {
+		orient = ` w:orient="landscape"`
+	}
+	elements = append(elements, fmt.Sprintf(`<w:pgSz w:w="%d" w:h="%d"%s/>`, s.pageWidth, s.pageHeight, orient))
 	elements = append(elements, fmt.Sprintf(`<w:pgMar w:top="%d" w:right="%d" w:bottom="%d" w:left="%d"/>`, s.marginTop, s.marginRight, s.marginBottom, s.marginLeft))
 
 	return fmt.Sprintf(`<w:sectPr>

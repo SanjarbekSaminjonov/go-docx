@@ -29,6 +29,8 @@ type Paragraph struct {
 	widowControl     *bool
 	borders          map[ParagraphBorderSide]*ParagraphBorder
 	shading          *ParagraphShading
+	// section holds a paragraph-level section break (sectPr) if present.
+	section *Section
 }
 
 // TabStop represents a paragraph tab stop configuration
@@ -283,7 +285,7 @@ func (p *Paragraph) ToXML() string {
 	}
 
 	var pPr string
-	if p.style != "" || p.alignment != WDAlignParagraphLeft || p.numberingApplied || p.hasSpacing() || p.hasIndentation() || p.hasTabStops() || p.hasBorders() || p.hasShading() || p.hasKeepSettings() {
+	if p.style != "" || p.alignment != WDAlignParagraphLeft || p.numberingApplied || p.hasSpacing() || p.hasIndentation() || p.hasTabStops() || p.hasBorders() || p.hasShading() || p.hasKeepSettings() || p.section != nil {
 		var pPrContent strings.Builder
 
 		if p.style != "" {
@@ -320,6 +322,11 @@ func (p *Paragraph) ToXML() string {
 
 		if p.hasKeepSettings() {
 			pPrContent.WriteString(p.keepSettingsXML())
+		}
+
+		if p.section != nil {
+			// Emit paragraph-level sectPr inside pPr to preserve section breaks/orientation at exact positions
+			pPrContent.WriteString(p.section.ToXML())
 		}
 
 		pPr = fmt.Sprintf(`<w:pPr>%s</w:pPr>`, pPrContent.String())

@@ -255,7 +255,7 @@ func (d *Document) Styles() *Styles {
 
 // SaveAs saves the document to the specified file path
 func (d *Document) SaveAs(path string) error {
-	if d.docPart != nil {
+	if d != nil && d.docPart != nil {
 		d.docPart.updateXMLData()
 	}
 	return d.pkg.SaveAs(path)

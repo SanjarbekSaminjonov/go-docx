@@ -14,6 +14,7 @@ import (
 type documentElement struct {
 	paragraph *Paragraph
 	table     *Table
+	section   *Section
 }
 
 type DocumentPart struct {
@@ -110,6 +111,7 @@ func (dp *DocumentPart) loadFromXML() error {
 					return fmt.Errorf("failed to parse section: %w", err)
 				}
 				dp.sections = append(dp.sections, section)
+				dp.bodyElements = append(dp.bodyElements, documentElement{section: section})
 			}
 		}
 	}
@@ -156,8 +158,10 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 		switch t := tok.(type) {
 		case xml.StartElement:
 			switch t.Name.Local {
-			case "pPr", "rPr":
-				// containers
+			case "pPr":
+				// handle paragraph properties including potential sectPr nested inside pPr
+			case "rPr":
+				// run properties container
 			case "pStyle":
 				if style := attrValue(t.Attr, "val"); style != "" {
 					paragraph.SetStyle(style)
@@ -166,6 +170,14 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 				if align := attrValue(t.Attr, "val"); align != "" {
 					paragraph.SetAlignment(mapParagraphAlignment(align))
 				}
+			case "sectPr":
+				// Paragraph-level section break; parse it and attach to this paragraph
+				sect, err := parseSectionProperties(decoder, t, dp)
+				if err != nil {
+					return nil, err
+				}
+				paragraph.section = sect
+				continue
 			case "pBdr":
 				borders, err := parseParagraphBorders(decoder, t)
 				if err != nil {
@@ -916,6 +928,9 @@ func parseSectionProperties(decoder *xml.Decoder, start xml.StartElement, dp *Do
 						section.pageHeight = h
 					}
 				}
+				if val := attrValue(t.Attr, "orient"); val != "" {
+					section.orientation = val
+				}
 				if err := skipElement(decoder, t); err != nil {
 					return nil, err
 				}
@@ -1402,20 +1417,25 @@ func (dp *DocumentPart) Sections() []*Section {
 func (dp *DocumentPart) updateXMLData() {
 	var bodyContent strings.Builder
 
+	hasSectionMarkers := false
 	for _, element := range dp.bodyElements {
 		if element.paragraph != nil {
 			bodyContent.WriteString(element.paragraph.ToXML())
 		} else if element.table != nil {
 			bodyContent.WriteString(element.table.ToXML())
+		} else if element.section != nil {
+			bodyContent.WriteString(element.section.ToXML())
+			hasSectionMarkers = true
 		}
 	}
 
-	if len(dp.sections) > 0 {
-		for _, section := range dp.sections {
-			bodyContent.WriteString(section.ToXML())
+	// Agar body ichida sektsiya belgilanmagan bo'lsa, oxirida kamida bitta sectPr yozamiz
+	if !hasSectionMarkers {
+		if len(dp.sections) > 0 {
+			bodyContent.WriteString(dp.sections[len(dp.sections)-1].ToXML())
+		} else {
+			bodyContent.WriteString(NewSection(SectionStartContinuous).ToXML())
 		}
-	} else {
-		bodyContent.WriteString(NewSection(SectionStartContinuous).ToXML())
 	}
 
 	docXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
