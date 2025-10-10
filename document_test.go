@@ -100,6 +100,9 @@ func TestOpenDocumentPreservesRunFormatting(t *testing.T) {
 	run.SetEmboss(true)
 	run.SetImprint(true)
 	run.AddBreak(BreakTypePage)
+	run.SetCharacterSpacing(40)
+	run.SetKerning(24)
+	run.SetBaselineShift(12)
 
 	outputPath := filepath.Join(t.TempDir(), "formatted.docx")
 	if err := doc.SaveAs(outputPath); err != nil {
@@ -192,6 +195,18 @@ func TestOpenDocumentPreservesRunFormatting(t *testing.T) {
 
 	if reopenedRun.BreakType() != BreakTypePage {
 		t.Errorf("expected break type %q, got %q", BreakTypePage, reopenedRun.BreakType())
+	}
+
+	if spacing, ok := reopenedRun.CharacterSpacing(); !ok || spacing != 40 {
+		t.Errorf("expected character spacing 40, got %d (ok=%v)", spacing, ok)
+	}
+
+	if kern, ok := reopenedRun.Kerning(); !ok || kern != 24 {
+		t.Errorf("expected kerning 24, got %d (ok=%v)", kern, ok)
+	}
+
+	if shift, ok := reopenedRun.BaselineShift(); !ok || shift != 12 {
+		t.Errorf("expected baseline shift 12, got %d (ok=%v)", shift, ok)
 	}
 }
 
@@ -415,6 +430,100 @@ func TestParagraphKeepSettingsRoundTrip(t *testing.T) {
 	}
 	if reopenedParagraph.WidowControl() {
 		t.Fatalf("expected widow control to be false")
+	}
+}
+
+func TestParagraphBordersAndShadingRoundTrip(t *testing.T) {
+	doc := NewDocument()
+	paragraph := doc.AddParagraph("Bordered paragraph")
+	paragraph.SetBorder(ParagraphBorderTop, ParagraphBorder{
+		Style:  "single",
+		Color:  "FF0000",
+		Size:   12,
+		Space:  80,
+		Shadow: true,
+	})
+	paragraph.SetBorder(ParagraphBorderBottom, ParagraphBorder{
+		Style: "double",
+		Color: "00FF00",
+		Size:  8,
+	})
+	paragraph.SetShading("solid", "FFFFAA", "000000")
+
+	outputPath := filepath.Join(t.TempDir(), "paragraph-borders.docx")
+	if err := doc.SaveAs(outputPath); err != nil {
+		t.Fatalf("SaveAs failed: %v", err)
+	}
+	if err := doc.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	reopened, err := OpenDocument(outputPath)
+	if err != nil {
+		t.Fatalf("OpenDocument failed: %v", err)
+	}
+	defer reopened.Close()
+
+	paras := reopened.Paragraphs()
+	if len(paras) != 1 {
+		t.Fatalf("expected 1 paragraph, got %d", len(paras))
+	}
+
+	reopenedParagraph := paras[0]
+	top, ok := reopenedParagraph.Border(ParagraphBorderTop)
+	if !ok {
+		t.Fatalf("expected top border to be present")
+	}
+	if top.Style != "single" {
+		t.Fatalf("expected top border style 'single', got %q", top.Style)
+	}
+	if top.Color != "FF0000" {
+		t.Fatalf("expected top border color FF0000, got %q", top.Color)
+	}
+	if top.Size != 12 {
+		t.Fatalf("expected top border size 12, got %d", top.Size)
+	}
+	if top.Space != 80 {
+		t.Fatalf("expected top border space 80, got %d", top.Space)
+	}
+	if !top.Shadow {
+		t.Fatalf("expected top border shadow to be true")
+	}
+
+	bottom, ok := reopenedParagraph.Border(ParagraphBorderBottom)
+	if !ok {
+		t.Fatalf("expected bottom border to be present")
+	}
+	if bottom.Style != "double" {
+		t.Fatalf("expected bottom border style 'double', got %q", bottom.Style)
+	}
+	if bottom.Color != "00FF00" {
+		t.Fatalf("expected bottom border color 00FF00, got %q", bottom.Color)
+	}
+	if bottom.Size != 8 {
+		t.Fatalf("expected bottom border size 8, got %d", bottom.Size)
+	}
+
+	shading, ok := reopenedParagraph.Shading()
+	if !ok {
+		t.Fatalf("expected shading to be present")
+	}
+	if shading.Pattern != "solid" {
+		t.Fatalf("expected shading pattern 'solid', got %q", shading.Pattern)
+	}
+	if shading.Fill != "FFFFAA" {
+		t.Fatalf("expected shading fill FFFF-AA, got %q", shading.Fill)
+	}
+	if shading.Color != "000000" {
+		t.Fatalf("expected shading color 000000, got %q", shading.Color)
+	}
+
+	paragraphXML := string(reopened.docPart.Part.Data)
+	if !strings.Contains(paragraphXML, "<w:pBdr>") {
+		t.Fatalf("expected paragraph XML to contain border definition")
+	}
+	if !strings.Contains(paragraphXML, "<w:shd") {
+		t.Fatalf("expected paragraph XML to contain shading definition")
 	}
 }
 

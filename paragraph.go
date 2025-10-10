@@ -27,6 +27,8 @@ type Paragraph struct {
 	keepLines        *bool
 	pageBreakBefore  *bool
 	widowControl     *bool
+	borders          map[ParagraphBorderSide]*ParagraphBorder
+	shading          *ParagraphShading
 }
 
 // TabStop represents a paragraph tab stop configuration
@@ -36,12 +38,41 @@ type TabStop struct {
 	Leader    WDTabLeader
 }
 
+// ParagraphBorderSide identifies an individual border edge.
+type ParagraphBorderSide string
+
+const (
+	ParagraphBorderTop     ParagraphBorderSide = "top"
+	ParagraphBorderLeft    ParagraphBorderSide = "left"
+	ParagraphBorderBottom  ParagraphBorderSide = "bottom"
+	ParagraphBorderRight   ParagraphBorderSide = "right"
+	ParagraphBorderBetween ParagraphBorderSide = "between"
+	ParagraphBorderBar     ParagraphBorderSide = "bar"
+)
+
+// ParagraphBorder describes a border appearance for a specific side.
+type ParagraphBorder struct {
+	Style  string // WordprocessingML value, e.g. "single", "dashed"
+	Color  string // Hex color or "auto"
+	Size   int    // Border width in eighths of a point
+	Space  int    // Space between border and text in twips
+	Shadow bool   // Whether shadow effect is applied
+}
+
+// ParagraphShading describes the shading applied to a paragraph.
+type ParagraphShading struct {
+	Pattern string // Shading pattern, e.g. "clear", "solid"
+	Fill    string // Fill color (background)
+	Color   string // Pattern color (foreground)
+}
+
 // NewParagraph creates a new paragraph
 func NewParagraph() *Paragraph {
 	return &Paragraph{
 		runs:      make([]*Run, 0),
 		tabStops:  make([]TabStop, 0),
 		alignment: WDAlignParagraphLeft,
+		borders:   make(map[ParagraphBorderSide]*ParagraphBorder),
 	}
 }
 
@@ -93,6 +124,67 @@ func (p *Paragraph) SetIndentation(left, right, firstLine, hanging int) {
 	p.indentRight = right
 	p.indentFirstLine = firstLine
 	p.indentHanging = hanging
+}
+
+// SetBorder configures the border for the specified side. Pass a zero-style border to remove it.
+func (p *Paragraph) SetBorder(side ParagraphBorderSide, border ParagraphBorder) {
+	if side == "" {
+		return
+	}
+	if p.borders == nil {
+		p.borders = make(map[ParagraphBorderSide]*ParagraphBorder)
+	}
+	if border.Style == "" {
+		delete(p.borders, side)
+		return
+	}
+	copy := border
+	p.borders[side] = &copy
+}
+
+// Border returns the configured border for the given side, if any.
+func (p *Paragraph) Border(side ParagraphBorderSide) (*ParagraphBorder, bool) {
+	if p.borders == nil {
+		return nil, false
+	}
+	border, ok := p.borders[side]
+	return border, ok
+}
+
+// ClearBorder removes the border configuration for the given side.
+func (p *Paragraph) ClearBorder(side ParagraphBorderSide) {
+	if p.borders != nil {
+		delete(p.borders, side)
+	}
+}
+
+// ClearBorders removes all paragraph borders.
+func (p *Paragraph) ClearBorders() {
+	if len(p.borders) > 0 {
+		p.borders = make(map[ParagraphBorderSide]*ParagraphBorder)
+	}
+}
+
+// SetShading configures the paragraph shading (pattern/fill/foreground).
+func (p *Paragraph) SetShading(pattern, fill, color string) {
+	p.shading = &ParagraphShading{
+		Pattern: pattern,
+		Fill:    fill,
+		Color:   color,
+	}
+}
+
+// Shading returns the paragraph shading information if set.
+func (p *Paragraph) Shading() (*ParagraphShading, bool) {
+	if p.shading == nil {
+		return nil, false
+	}
+	return p.shading, true
+}
+
+// ClearShading removes paragraph shading.
+func (p *Paragraph) ClearShading() {
+	p.shading = nil
 }
 
 // Indentation returns the indentation configuration
@@ -179,6 +271,8 @@ func (p *Paragraph) Clear() {
 	p.keepLines = nil
 	p.pageBreakBefore = nil
 	p.widowControl = nil
+	p.borders = make(map[ParagraphBorderSide]*ParagraphBorder)
+	p.shading = nil
 }
 
 // ToXML converts the paragraph to WordprocessingML XML
@@ -189,7 +283,7 @@ func (p *Paragraph) ToXML() string {
 	}
 
 	var pPr string
-	if p.style != "" || p.alignment != WDAlignParagraphLeft || p.numberingApplied || p.hasSpacing() || p.hasIndentation() || p.hasTabStops() || p.hasKeepSettings() {
+	if p.style != "" || p.alignment != WDAlignParagraphLeft || p.numberingApplied || p.hasSpacing() || p.hasIndentation() || p.hasTabStops() || p.hasBorders() || p.hasShading() || p.hasKeepSettings() {
 		var pPrContent strings.Builder
 
 		if p.style != "" {
@@ -214,6 +308,14 @@ func (p *Paragraph) ToXML() string {
 
 		if p.hasTabStops() {
 			pPrContent.WriteString(p.tabsXML())
+		}
+
+		if p.hasBorders() {
+			pPrContent.WriteString(p.bordersXML())
+		}
+
+		if p.hasShading() {
+			pPrContent.WriteString(p.shadingXML())
 		}
 
 		if p.hasKeepSettings() {
@@ -381,6 +483,78 @@ func (p *Paragraph) hasTabStops() bool {
 	return len(p.tabStops) > 0
 }
 
+func (p *Paragraph) hasBorders() bool {
+	return len(p.borders) > 0
+}
+
+func (p *Paragraph) hasShading() bool {
+	return p.shading != nil
+}
+
+func (p *Paragraph) bordersXML() string {
+	if len(p.borders) == 0 {
+		return ""
+	}
+	ordered := []ParagraphBorderSide{
+		ParagraphBorderTop,
+		ParagraphBorderLeft,
+		ParagraphBorderBottom,
+		ParagraphBorderRight,
+		ParagraphBorderBetween,
+		ParagraphBorderBar,
+	}
+	var builder strings.Builder
+	builder.WriteString("<w:pBdr>")
+	written := false
+	for _, side := range ordered {
+		border, ok := p.borders[side]
+		if !ok || border == nil || border.Style == "" {
+			continue
+		}
+		attrs := []string{fmt.Sprintf(`w:val="%s"`, border.Style)}
+		if border.Size > 0 {
+			attrs = append(attrs, fmt.Sprintf(`w:sz="%d"`, border.Size))
+		}
+		if border.Space > 0 {
+			attrs = append(attrs, fmt.Sprintf(`w:space="%d"`, border.Space))
+		}
+		color := border.Color
+		if color == "" {
+			color = "auto"
+		}
+		attrs = append(attrs, fmt.Sprintf(`w:color="%s"`, color))
+		if border.Shadow {
+			attrs = append(attrs, `w:shadow="1"`)
+		}
+		builder.WriteString(fmt.Sprintf(`<w:%s %s/>`, side, strings.Join(attrs, " ")))
+		written = true
+	}
+	builder.WriteString("</w:pBdr>")
+	if !written {
+		return ""
+	}
+	return builder.String()
+}
+
+func (p *Paragraph) shadingXML() string {
+	if p.shading == nil {
+		return ""
+	}
+	pattern := p.shading.Pattern
+	if pattern == "" {
+		pattern = "clear"
+	}
+	fill := p.shading.Fill
+	if fill == "" {
+		fill = "auto"
+	}
+	color := p.shading.Color
+	if color == "" {
+		color = "auto"
+	}
+	return fmt.Sprintf(`<w:shd w:val="%s" w:color="%s" w:fill="%s"/>`, pattern, color, fill)
+}
+
 func (p *Paragraph) tabsXML() string {
 	if len(p.tabStops) == 0 {
 		return ""
@@ -439,6 +613,11 @@ func boolPtr(v bool) *bool {
 	return &b
 }
 
+func intPtr(v int) *int {
+	value := v
+	return &value
+}
+
 // Run represents a run of text with consistent formatting
 type Run struct {
 	owner           *DocumentPart
@@ -463,6 +642,9 @@ type Run struct {
 	emboss          bool
 	imprint         bool
 	picture         *Picture
+	charSpacing     *int
+	kern            *int
+	baselineShift   *int
 }
 
 // NewRun creates a new run with the specified text
@@ -591,6 +773,63 @@ func (r *Run) HyperlinkURL() string {
 // HyperlinkAnchor returns the internal hyperlink anchor if present
 func (r *Run) HyperlinkAnchor() string {
 	return r.hyperlinkAnchor
+}
+
+// SetCharacterSpacing adjusts the space between characters in twentieths of a point.
+// Positive values expand spacing, negative values condense it. Use ClearCharacterSpacing to remove the override.
+func (r *Run) SetCharacterSpacing(twips int) {
+	r.charSpacing = intPtr(twips)
+}
+
+// CharacterSpacing returns the character spacing override (in twentieths of a point) if present.
+func (r *Run) CharacterSpacing() (int, bool) {
+	if r.charSpacing == nil {
+		return 0, false
+	}
+	return *r.charSpacing, true
+}
+
+// ClearCharacterSpacing removes the character spacing override from the run.
+func (r *Run) ClearCharacterSpacing() {
+	r.charSpacing = nil
+}
+
+// SetKerning specifies the minimum font size (in half-points) at which kerning is applied.
+// Pass zero to disable kerning; use ClearKerning to remove the explicit value.
+func (r *Run) SetKerning(halfPoints int) {
+	r.kern = intPtr(halfPoints)
+}
+
+// Kerning returns the kerning threshold (in half-points) if one is set.
+func (r *Run) Kerning() (int, bool) {
+	if r.kern == nil {
+		return 0, false
+	}
+	return *r.kern, true
+}
+
+// ClearKerning removes the kerning override from the run.
+func (r *Run) ClearKerning() {
+	r.kern = nil
+}
+
+// SetBaselineShift raises or lowers the run baseline by the specified half-points (positive raises, negative lowers).
+// Use ClearBaselineShift to remove the override.
+func (r *Run) SetBaselineShift(halfPoints int) {
+	r.baselineShift = intPtr(halfPoints)
+}
+
+// BaselineShift returns the baseline offset (in half-points) if one is set.
+func (r *Run) BaselineShift() (int, bool) {
+	if r.baselineShift == nil {
+		return 0, false
+	}
+	return *r.baselineShift, true
+}
+
+// ClearBaselineShift removes the baseline shift override from the run.
+func (r *Run) ClearBaselineShift() {
+	r.baselineShift = nil
 }
 
 // HasPicture reports whether the run contains an inline picture
@@ -771,6 +1010,18 @@ func (r *Run) ToXML() string {
 
 	if r.highlight != WDColorIndexAuto {
 		rPr.WriteString(fmt.Sprintf(`<w:highlight w:val="%s"/>`, r.highlight))
+	}
+
+	if r.charSpacing != nil {
+		rPr.WriteString(fmt.Sprintf(`<w:spacing w:val="%d"/>`, *r.charSpacing))
+	}
+
+	if r.kern != nil {
+		rPr.WriteString(fmt.Sprintf(`<w:kern w:val="%d"/>`, *r.kern))
+	}
+
+	if r.baselineShift != nil {
+		rPr.WriteString(fmt.Sprintf(`<w:position w:val="%d"/>`, *r.baselineShift))
 	}
 
 	var rPrXML string

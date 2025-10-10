@@ -146,7 +146,28 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 				if align := attrValue(t.Attr, "val"); align != "" {
 					paragraph.SetAlignment(mapParagraphAlignment(align))
 				}
+			case "pBdr":
+				borders, err := parseParagraphBorders(decoder, t)
+				if err != nil {
+					return nil, err
+				}
+				for side, border := range borders {
+					if border != nil {
+						paragraph.SetBorder(side, *border)
+					}
+				}
 			case "spacing":
+				if currentRun != nil {
+					if val := attrValue(t.Attr, "val"); val != "" {
+						if v, err := strconv.Atoi(val); err == nil {
+							currentRun.SetCharacterSpacing(v)
+						}
+					}
+					if err := skipElement(decoder, t); err != nil {
+						return nil, err
+					}
+					break
+				}
 				if val := attrValue(t.Attr, "before"); val != "" {
 					if v, err := strconv.Atoi(val); err == nil {
 						paragraph.spacingBefore = v
@@ -162,8 +183,8 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 						paragraph.spacingLine = v
 					}
 				}
-				if rule := attrValue(t.Attr, "lineRule"); rule != "" {
-					paragraph.spacingLineRule = rule
+				if val := attrValue(t.Attr, "lineRule"); val != "" {
+					paragraph.spacingLineRule = val
 				}
 				if err := skipElement(decoder, t); err != nil {
 					return nil, err
@@ -352,6 +373,36 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 						currentRun.SetHighlight(WDColorIndex(val))
 					}
 				}
+			case "shd":
+				if currentRun == nil {
+					paragraph.SetShading(attrValue(t.Attr, "val"), attrValue(t.Attr, "fill"), attrValue(t.Attr, "color"))
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+				continue
+			case "kern":
+				if currentRun != nil {
+					if val := attrValue(t.Attr, "val"); val != "" {
+						if v, err := strconv.Atoi(val); err == nil {
+							currentRun.SetKerning(v)
+						}
+					}
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			case "position":
+				if currentRun != nil {
+					if val := attrValue(t.Attr, "val"); val != "" {
+						if v, err := strconv.Atoi(val); err == nil {
+							currentRun.SetBaselineShift(v)
+						}
+					}
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
 			case "br":
 				if currentRun == nil {
 					currentRun = NewRun("")
@@ -463,6 +514,59 @@ func parseDrawing(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart
 	}
 
 	return picture, nil
+}
+
+func parseParagraphBorders(decoder *xml.Decoder, start xml.StartElement) (map[ParagraphBorderSide]*ParagraphBorder, error) {
+	borders := make(map[ParagraphBorderSide]*ParagraphBorder)
+
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			side := ParagraphBorderSide(t.Name.Local)
+			if side != ParagraphBorderTop && side != ParagraphBorderLeft && side != ParagraphBorderBottom && side != ParagraphBorderRight && side != ParagraphBorderBetween && side != ParagraphBorderBar {
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			border := &ParagraphBorder{
+				Style: attrValue(t.Attr, "val"),
+				Color: attrValue(t.Attr, "color"),
+			}
+			if border.Style == "" {
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if sz := attrValue(t.Attr, "sz"); sz != "" {
+				if v, err := strconv.Atoi(sz); err == nil {
+					border.Size = v
+				}
+			}
+			if space := attrValue(t.Attr, "space"); space != "" {
+				if v, err := strconv.Atoi(space); err == nil {
+					border.Space = v
+				}
+			}
+			if shadow := attrValue(t.Attr, "shadow"); shadow != "" {
+				border.Shadow = strings.EqualFold(shadow, "1") || strings.EqualFold(shadow, "true")
+			}
+			borders[side] = border
+			if err := skipElement(decoder, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return borders, nil
+			}
+		}
+	}
 }
 
 func parseParagraphTabs(decoder *xml.Decoder, start xml.StartElement) ([]TabStop, error) {
