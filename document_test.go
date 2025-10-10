@@ -675,6 +675,90 @@ func TestOpenDocumentParsesTables(t *testing.T) {
 	}
 }
 
+func TestTableFormattingRoundTrip(t *testing.T) {
+	doc := NewDocument()
+	table := doc.AddTable(2, 2)
+
+	table.SetBorder(TableBorderTop, TableBorder{Style: "single", Color: "FF0000", Size: 12, Space: 40})
+	table.SetBorder(TableBorderBottom, TableBorder{Style: "double", Color: "00FF00", Size: 8})
+	table.SetShading("solid", "CCCCCC", "000000")
+	table.SetCellMargins(120, 240, 360, 480)
+
+	cell := table.Row(0).Cell(0)
+	cell.SetText("merged")
+	cell.SetShading("solid", "FFFFAA", "000000")
+	cell.SetBorder(TableBorderLeft, TableBorder{Style: "single", Color: "0000FF", Size: 6})
+
+	if err := table.MergeCellsHorizontally(0, 0, 1); err != nil {
+		t.Fatalf("MergeCellsHorizontally failed: %v", err)
+	}
+	if err := table.MergeCellsVertically(0, 0, 1); err != nil {
+		t.Fatalf("MergeCellsVertically failed: %v", err)
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "table-formatting.docx")
+	if err := doc.SaveAs(outputPath); err != nil {
+		t.Fatalf("SaveAs failed: %v", err)
+	}
+	if err := doc.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	reopened, err := OpenDocument(outputPath)
+	if err != nil {
+		t.Fatalf("OpenDocument failed: %v", err)
+	}
+	defer reopened.Close()
+
+	tables := reopened.Tables()
+	if len(tables) != 1 {
+		t.Fatalf("expected 1 table, got %d", len(tables))
+	}
+
+	reopenedTable := tables[0]
+
+	top, ok := reopenedTable.Border(TableBorderTop)
+	if !ok || top.Style != "single" || top.Color != "FF0000" || top.Size != 12 || top.Space != 40 {
+		t.Fatalf("expected top border to match, got %+v", top)
+	}
+	bottom, ok := reopenedTable.Border(TableBorderBottom)
+	if !ok || bottom.Style != "double" || bottom.Color != "00FF00" || bottom.Size != 8 {
+		t.Fatalf("expected bottom border to match, got %+v", bottom)
+	}
+
+	shading, ok := reopenedTable.Shading()
+	if !ok || shading.Pattern != "solid" || shading.Fill != "CCCCCC" || shading.Color != "000000" {
+		t.Fatalf("expected table shading to match, got %+v", shading)
+	}
+
+	margins, ok := reopenedTable.CellMargins()
+	if !ok || margins.Top == nil || *margins.Top != 120 || margins.Left == nil || *margins.Left != 240 || margins.Bottom == nil || *margins.Bottom != 360 || margins.Right == nil || *margins.Right != 480 {
+		t.Fatalf("expected cell margins to match, got %+v", margins)
+	}
+
+	reopenedCell := reopenedTable.Row(0).Cell(0)
+	cellShading, ok := reopenedCell.Shading()
+	if !ok || cellShading.Pattern != "solid" || cellShading.Fill != "FFFFAA" || cellShading.Color != "000000" {
+		t.Fatalf("expected cell shading to match, got %+v", cellShading)
+	}
+	left, ok := reopenedCell.Border(TableBorderLeft)
+	if !ok || left.Style != "single" || left.Color != "0000FF" || left.Size != 6 {
+		t.Fatalf("expected cell left border to match, got %+v", left)
+	}
+
+	if reopenedCell.GridSpan() != 2 {
+		t.Fatalf("expected merged cell grid span 2, got %d", reopenedCell.GridSpan())
+	}
+	if reopenedCell.VerticalMerge() != TableVerticalMergeRestart {
+		t.Fatalf("expected vertical merge restart, got %q", reopenedCell.VerticalMerge())
+	}
+
+	row2Cell := reopenedTable.Row(1).Cell(0)
+	if row2Cell.VerticalMerge() != TableVerticalMergeContinue {
+		t.Fatalf("expected vertical merge continue on second row, got %q", row2Cell.VerticalMerge())
+	}
+}
+
 func createTestImage(t *testing.T, path string, width, height int) {
 	t.Helper()
 	img := image.NewRGBA(image.Rect(0, 0, width, height))

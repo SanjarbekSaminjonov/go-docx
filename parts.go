@@ -661,7 +661,7 @@ func parseParagraphNumbering(decoder *xml.Decoder, paragraph *Paragraph) error {
 }
 
 func parseTable(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart) (*Table, error) {
-	table := &Table{rows: make([]*TableRow, 0), owner: dp}
+	table := &Table{rows: make([]*TableRow, 0), owner: dp, borders: make(map[TableBorderSide]*TableBorder)}
 
 	for {
 		tok, err := decoder.Token()
@@ -678,9 +678,20 @@ func parseTable(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart) 
 					return nil, err
 				}
 				table.rows = append(table.rows, row)
-			case "tblPr", "tblGrid":
-				if err := skipElement(decoder, t); err != nil {
+				if len(row.cells) > table.gridColumns {
+					table.gridColumns = len(row.cells)
+				}
+			case "tblPr":
+				if err := parseTableProperties(decoder, t, table); err != nil {
 					return nil, err
+				}
+			case "tblGrid":
+				cols, err := parseTableGrid(decoder, t)
+				if err != nil {
+					return nil, err
+				}
+				if cols > table.gridColumns {
+					table.gridColumns = cols
 				}
 			default:
 				if err := skipElement(decoder, t); err != nil {
@@ -689,6 +700,9 @@ func parseTable(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart) 
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
+				if table.gridColumns == 0 && len(table.rows) > 0 {
+					table.gridColumns = len(table.rows[0].cells)
+				}
 				table.setOwner(dp)
 				return table, nil
 			}
@@ -736,6 +750,7 @@ func parseTableCell(decoder *xml.Decoder, start xml.StartElement, row *TableRow,
 		row:        row,
 		paragraphs: make([]*Paragraph, 0),
 		width:      1440,
+		borders:    make(map[TableBorderSide]*TableBorder),
 	}
 
 	for {
@@ -798,6 +813,45 @@ func parseTableCellProperties(decoder *xml.Decoder, start xml.StartElement, cell
 				if err := skipElement(decoder, t); err != nil {
 					return err
 				}
+			case "gridSpan":
+				if val := attrValue(t.Attr, "val"); val != "" {
+					if span, err := strconv.Atoi(val); err == nil {
+						cell.gridSpan = span
+					}
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			case "vMerge":
+				state := attrValue(t.Attr, "val")
+				switch state {
+				case "restart":
+					cell.verticalMerge = TableVerticalMergeRestart
+				case "continue":
+					cell.verticalMerge = TableVerticalMergeContinue
+				default:
+					if state == "" {
+						cell.verticalMerge = TableVerticalMergeContinue
+					}
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			case "tcBorders":
+				borders, err := parseTableBorders(decoder, t)
+				if err != nil {
+					return err
+				}
+				for side, border := range borders {
+					if border != nil {
+						cell.SetBorder(side, *border)
+					}
+				}
+			case "shd":
+				cell.SetShading(attrValue(t.Attr, "val"), attrValue(t.Attr, "fill"), attrValue(t.Attr, "color"))
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
 			default:
 				if err := skipElement(decoder, t); err != nil {
 					return err
@@ -806,6 +860,164 @@ func parseTableCellProperties(decoder *xml.Decoder, start xml.StartElement, cell
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
 				return nil
+			}
+		}
+	}
+}
+
+func parseTableProperties(decoder *xml.Decoder, start xml.StartElement, table *Table) error {
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "tblBorders":
+				borders, err := parseTableBorders(decoder, t)
+				if err != nil {
+					return err
+				}
+				for side, border := range borders {
+					if border != nil {
+						table.SetBorder(side, *border)
+					}
+				}
+			case "tblCellMar":
+				margins, err := parseTableCellMargins(decoder, t)
+				if err != nil {
+					return err
+				}
+				if margins != nil {
+					table.cellMargins = margins
+				}
+			case "shd":
+				table.SetShading(attrValue(t.Attr, "val"), attrValue(t.Attr, "fill"), attrValue(t.Attr, "color"))
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			case "tblW":
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			default:
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return nil
+			}
+		}
+	}
+}
+
+func parseTableBorders(decoder *xml.Decoder, start xml.StartElement) (map[TableBorderSide]*TableBorder, error) {
+	borders := make(map[TableBorderSide]*TableBorder)
+
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			border := parseBorderAttributes(t.Attr)
+			if border.Style != "" {
+				side := TableBorderSide(t.Name.Local)
+				copy := border
+				borders[side] = &copy
+			}
+			if err := skipElement(decoder, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return borders, nil
+			}
+		}
+	}
+}
+
+func parseBorderAttributes(attrs []xml.Attr) TableBorder {
+	border := TableBorder{}
+	for _, attr := range attrs {
+		if attr.Name.Local == "val" {
+			border.Style = attr.Value
+		} else if attr.Name.Local == "color" {
+			border.Color = attr.Value
+		} else if attr.Name.Local == "sz" {
+			if v, err := strconv.Atoi(attr.Value); err == nil {
+				border.Size = v
+			}
+		} else if attr.Name.Local == "space" {
+			if v, err := strconv.Atoi(attr.Value); err == nil {
+				border.Space = v
+			}
+		}
+	}
+	return border
+}
+
+func parseTableCellMargins(decoder *xml.Decoder, start xml.StartElement) (*TableCellMargins, error) {
+	margins := &TableCellMargins{}
+
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			val := attrValue(t.Attr, "w")
+			if val != "" {
+				if v, err := strconv.Atoi(val); err == nil {
+					switch t.Name.Local {
+					case "top":
+						margins.Top = intPtr(v)
+					case "left":
+						margins.Left = intPtr(v)
+					case "bottom":
+						margins.Bottom = intPtr(v)
+					case "right":
+						margins.Right = intPtr(v)
+					}
+				}
+			}
+			if err := skipElement(decoder, t); err != nil {
+				return nil, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return margins, nil
+			}
+		}
+	}
+}
+
+func parseTableGrid(decoder *xml.Decoder, start xml.StartElement) (int, error) {
+	count := 0
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return 0, err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			if t.Name.Local == "gridCol" {
+				count++
+			}
+			if err := skipElement(decoder, t); err != nil {
+				return 0, err
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return count, nil
 			}
 		}
 	}
