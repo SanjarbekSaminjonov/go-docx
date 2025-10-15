@@ -884,7 +884,10 @@ func TestGetXML(t *testing.T) {
 
 		// Add some content
 		doc.AddParagraph("Test paragraph")
-		doc.AddHeading("Test Heading", 1)
+		_, err := doc.AddHeading("Test Heading", 1)
+		if err != nil {
+			t.Fatalf("AddHeading() failed: %v", err)
+		}
 
 		xmlContent, err := doc.GetXML()
 		if err != nil {
