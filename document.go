@@ -80,6 +80,14 @@ func OpenDocument(path string) (*Document, error) {
 	}, nil
 }
 
+// Get XML content of the document as string
+func (d *Document) GetXML() (string, error) {
+	if d.docPart == nil {
+		return "", fmt.Errorf("document has no main document part")
+	}
+	return string(d.docPart.Data), nil
+}
+
 // AddParagraph adds a new paragraph to the end of the document and returns it
 func (d *Document) AddParagraph(text ...string) *Paragraph {
 	return d.docPart.AddParagraph(text...)
