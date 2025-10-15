@@ -853,3 +853,160 @@ func createTestImage(t *testing.T, path string, width, height int) {
 		t.Fatalf("failed to encode test image: %v", err)
 	}
 }
+
+func TestGetXML(t *testing.T) {
+	// Test GetXML with a new document
+	t.Run("NewDocument", func(t *testing.T) {
+		doc := NewDocument()
+
+		xmlContent, err := doc.GetXML()
+		if err != nil {
+			t.Fatalf("GetXML() failed: %v", err)
+		}
+
+		if xmlContent == "" {
+			t.Fatal("GetXML() returned empty string")
+		}
+
+		// Check for basic XML structure
+		if !strings.Contains(xmlContent, "<w:document") {
+			t.Error("XML content should contain <w:document element")
+		}
+
+		if !strings.Contains(xmlContent, "<w:body>") {
+			t.Error("XML content should contain <w:body> element")
+		}
+	})
+
+	// Test GetXML with content
+	t.Run("WithContent", func(t *testing.T) {
+		doc := NewDocument()
+
+		// Add some content
+		doc.AddParagraph("Test paragraph")
+		doc.AddHeading("Test Heading", 1)
+
+		xmlContent, err := doc.GetXML()
+		if err != nil {
+			t.Fatalf("GetXML() failed: %v", err)
+		}
+
+		// Check that content is reflected in XML
+		if !strings.Contains(xmlContent, "Test paragraph") {
+			t.Error("XML content should contain 'Test paragraph'")
+		}
+
+		if !strings.Contains(xmlContent, "Test Heading") {
+			t.Error("XML content should contain 'Test Heading'")
+		}
+
+		// Check for paragraph structure
+		if !strings.Contains(xmlContent, "<w:p>") {
+			t.Error("XML content should contain paragraph elements")
+		}
+
+		if !strings.Contains(xmlContent, "<w:r>") {
+			t.Error("XML content should contain run elements")
+		}
+
+		if !strings.Contains(xmlContent, "<w:t>") {
+			t.Error("XML content should contain text elements")
+		}
+	})
+
+	// Test GetXML with complex content
+	t.Run("WithComplexContent", func(t *testing.T) {
+		doc := NewDocument()
+
+		// Add various types of content
+		p := doc.AddParagraph()
+		p.AddRun("Bold text").SetBold(true)
+		p.AddRun(" and ").SetBold(false)
+		p.AddRun("italic text").SetItalic(true)
+
+		// Add a table (just test structure, not content for now)
+		table := doc.AddTable(2, 2)
+		table.Row(0).Cell(0).SetText("Cell 1")
+		table.Row(0).Cell(1).SetText("Cell 2")
+
+		xmlContent, err := doc.GetXML()
+		if err != nil {
+			t.Fatalf("GetXML() failed: %v", err)
+		}
+
+		// Check for table structure
+		if !strings.Contains(xmlContent, "<w:tbl>") {
+			t.Error("XML content should contain table elements")
+		}
+
+		if !strings.Contains(xmlContent, "<w:tr>") {
+			t.Error("XML content should contain table row elements")
+		}
+
+		if !strings.Contains(xmlContent, "<w:tc>") {
+			t.Error("XML content should contain table cell elements")
+		}
+
+		// Check for formatting
+		if !strings.Contains(xmlContent, "<w:b/>") {
+			t.Error("XML content should contain bold formatting")
+		}
+
+		if !strings.Contains(xmlContent, "<w:i/>") {
+			t.Error("XML content should contain italic formatting")
+		}
+
+		// Check for text content in runs
+		if !strings.Contains(xmlContent, "Bold text") {
+			t.Error("XML content should contain 'Bold text'")
+		}
+
+		if !strings.Contains(xmlContent, "italic text") {
+			t.Error("XML content should contain 'italic text'")
+		}
+	})
+
+	// Test GetXML after opening an existing document
+	t.Run("OpenedDocument", func(t *testing.T) {
+		// Create and save a document first
+		tempFile := filepath.Join(t.TempDir(), "test_getxml.docx")
+
+		doc := NewDocument()
+		doc.AddParagraph("Original content")
+		if err := doc.SaveAs(tempFile); err != nil {
+			t.Fatalf("Failed to save document: %v", err)
+		}
+		doc.Close()
+
+		// Open the document and test GetXML
+		reopened, err := OpenDocument(tempFile)
+		if err != nil {
+			t.Fatalf("Failed to open document: %v", err)
+		}
+		defer reopened.Close()
+
+		xmlContent, err := reopened.GetXML()
+		if err != nil {
+			t.Fatalf("GetXML() failed on opened document: %v", err)
+		}
+
+		if !strings.Contains(xmlContent, "Original content") {
+			t.Error("XML content should contain original content from saved document")
+		}
+	})
+
+	// Test GetXML error case (nil docPart)
+	t.Run("ErrorCase", func(t *testing.T) {
+		doc := &Document{} // Document with nil docPart
+
+		_, err := doc.GetXML()
+		if err == nil {
+			t.Error("GetXML() should return error when docPart is nil")
+		}
+
+		expectedError := "document has no main document part"
+		if !strings.Contains(err.Error(), expectedError) {
+			t.Errorf("Expected error to contain '%s', got: %v", expectedError, err)
+		}
+	})
+}

@@ -239,6 +239,30 @@ err := doc.Save()
 err := doc.Close()
 ```
 
+#### Getting Document XML
+
+You can retrieve the raw XML content of the document for debugging, analysis, or custom processing:
+
+```go
+// Get the XML content of the document
+xmlContent, err := doc.GetXML()
+if err != nil {
+    log.Printf("Error getting XML: %v", err)
+    return
+}
+
+fmt.Println("Document XML content:")
+fmt.Println(xmlContent)
+```
+
+**Use cases for GetXML():**
+- **Debugging**: Inspect the underlying XML structure of your document
+- **Custom Processing**: Extract or analyze document content programmatically  
+- **Integration**: Pass XML content to other XML processing tools
+- **Validation**: Verify that document structure meets specific requirements
+
+The returned XML will be in OpenXML WordprocessingML format, containing elements like `<w:document>`, `<w:body>`, `<w:p>` (paragraphs), `<w:r>` (runs), and `<w:t>` (text).
+
 ### Paragraphs
 
 ```go
