@@ -18,17 +18,27 @@ type Paragraph struct {
 	indentRight      int
 	indentFirstLine  int
 	indentHanging    int
-	spacingBefore    int
-	spacingAfter     int
-	spacingLine      int
-	spacingLineRule  string
-	tabStops         []TabStop
-	keepWithNext     *bool
-	keepLines        *bool
-	pageBreakBefore  *bool
-	widowControl     *bool
-	borders          map[ParagraphBorderSide]*ParagraphBorder
-	shading          *ParagraphShading
+	// Track whether indentation attributes were explicitly set in the source (including zero)
+	indentLeftSet      bool
+	indentRightSet     bool
+	indentFirstLineSet bool
+	indentHangingSet   bool
+	spacingBefore      int
+	spacingAfter       int
+	spacingLine        int
+	spacingLineRule    string
+	// Track whether spacing attributes were explicitly set in the source (including zero)
+	spacingBeforeSet   bool
+	spacingAfterSet    bool
+	spacingLineSet     bool
+	spacingLineRuleSet bool
+	tabStops           []TabStop
+	keepWithNext       *bool
+	keepLines          *bool
+	pageBreakBefore    *bool
+	widowControl       *bool
+	borders            map[ParagraphBorderSide]*ParagraphBorder
+	shading            *ParagraphShading
 	// section holds a paragraph-level section break (sectPr) if present.
 	section *Section
 }
@@ -113,6 +123,16 @@ func (p *Paragraph) SetSpacing(before, after, line int, lineRule string) {
 	p.spacingAfter = after
 	p.spacingLine = line
 	p.spacingLineRule = lineRule
+	// Mark as explicitly set so zeros are preserved
+	p.spacingBeforeSet = true
+	p.spacingAfterSet = true
+	p.spacingLineSet = true
+	// Only set the flag if a lineRule value provided
+	if lineRule != "" {
+		p.spacingLineRuleSet = true
+	} else {
+		p.spacingLineRuleSet = false
+	}
 }
 
 // Spacing returns the spacing configuration
@@ -126,6 +146,11 @@ func (p *Paragraph) SetIndentation(left, right, firstLine, hanging int) {
 	p.indentRight = right
 	p.indentFirstLine = firstLine
 	p.indentHanging = hanging
+	// Mark as explicitly set so zeros are preserved
+	p.indentLeftSet = true
+	p.indentRightSet = true
+	p.indentFirstLineSet = true
+	p.indentHangingSet = true
 }
 
 // SetBorder configures the border for the specified side. Pass a zero-style border to remove it.
@@ -264,10 +289,18 @@ func (p *Paragraph) Clear() {
 	p.indentRight = 0
 	p.indentFirstLine = 0
 	p.indentHanging = 0
+	p.indentLeftSet = false
+	p.indentRightSet = false
+	p.indentFirstLineSet = false
+	p.indentHangingSet = false
 	p.spacingBefore = 0
 	p.spacingAfter = 0
 	p.spacingLine = 0
 	p.spacingLineRule = ""
+	p.spacingBeforeSet = false
+	p.spacingAfterSet = false
+	p.spacingLineSet = false
+	p.spacingLineRuleSet = false
 	p.tabStops = p.tabStops[:0]
 	p.keepWithNext = nil
 	p.keepLines = nil
@@ -336,46 +369,54 @@ func (p *Paragraph) ToXML() string {
 }
 
 func (p *Paragraph) hasSpacing() bool {
-	return p.spacingBefore != 0 || p.spacingAfter != 0 || p.spacingLine != 0 || p.spacingLineRule != ""
+	// Consider attributes explicitly set, even if value is zero
+	return p.spacingBeforeSet || p.spacingAfterSet || p.spacingLineSet || p.spacingLineRuleSet ||
+		p.spacingBefore != 0 || p.spacingAfter != 0 || p.spacingLine != 0 || p.spacingLineRule != ""
 }
 
 func (p *Paragraph) spacingXML() string {
 	attrs := make([]string, 0, 4)
-	if p.spacingBefore != 0 {
+	if p.spacingBeforeSet {
 		attrs = append(attrs, fmt.Sprintf(`w:before="%d"`, p.spacingBefore))
 	}
-	if p.spacingAfter != 0 {
+	if p.spacingAfterSet {
 		attrs = append(attrs, fmt.Sprintf(`w:after="%d"`, p.spacingAfter))
 	}
-	if p.spacingLine != 0 {
+	if p.spacingLineSet {
 		attrs = append(attrs, fmt.Sprintf(`w:line="%d"`, p.spacingLine))
 	}
-	if p.spacingLineRule != "" {
+	if p.spacingLineRuleSet && p.spacingLineRule != "" {
 		attrs = append(attrs, fmt.Sprintf(`w:lineRule="%s"`, p.spacingLineRule))
 	}
-
+	if len(attrs) == 0 {
+		return ""
+	}
 	return fmt.Sprintf(`<w:spacing %s/>`, strings.Join(attrs, " "))
 }
 
 func (p *Paragraph) hasIndentation() bool {
-	return p.indentLeft != 0 || p.indentRight != 0 || p.indentFirstLine != 0 || p.indentHanging != 0
+	// Consider attributes explicitly set, even if value is zero
+	return p.indentLeftSet || p.indentRightSet || p.indentFirstLineSet || p.indentHangingSet ||
+		p.indentLeft != 0 || p.indentRight != 0 || p.indentFirstLine != 0 || p.indentHanging != 0
 }
 
 func (p *Paragraph) indentationXML() string {
 	attrs := make([]string, 0, 4)
-	if p.indentLeft != 0 {
+	if p.indentLeftSet {
 		attrs = append(attrs, fmt.Sprintf(`w:left="%d"`, p.indentLeft))
 	}
-	if p.indentRight != 0 {
+	if p.indentRightSet {
 		attrs = append(attrs, fmt.Sprintf(`w:right="%d"`, p.indentRight))
 	}
-	if p.indentFirstLine != 0 {
+	if p.indentFirstLineSet {
 		attrs = append(attrs, fmt.Sprintf(`w:firstLine="%d"`, p.indentFirstLine))
 	}
-	if p.indentHanging != 0 {
+	if p.indentHangingSet {
 		attrs = append(attrs, fmt.Sprintf(`w:hanging="%d"`, p.indentHanging))
 	}
-
+	if len(attrs) == 0 {
+		return ""
+	}
 	return fmt.Sprintf(`<w:ind %s/>`, strings.Join(attrs, " "))
 }
 

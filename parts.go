@@ -203,20 +203,24 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 				if val := attrValue(t.Attr, "before"); val != "" {
 					if v, err := strconv.Atoi(val); err == nil {
 						paragraph.spacingBefore = v
+						paragraph.spacingBeforeSet = true
 					}
 				}
 				if val := attrValue(t.Attr, "after"); val != "" {
 					if v, err := strconv.Atoi(val); err == nil {
 						paragraph.spacingAfter = v
+						paragraph.spacingAfterSet = true
 					}
 				}
 				if val := attrValue(t.Attr, "line"); val != "" {
 					if v, err := strconv.Atoi(val); err == nil {
 						paragraph.spacingLine = v
+						paragraph.spacingLineSet = true
 					}
 				}
 				if val := attrValue(t.Attr, "lineRule"); val != "" {
 					paragraph.spacingLineRule = val
+					paragraph.spacingLineRuleSet = true
 				}
 				if err := skipElement(decoder, t); err != nil {
 					return nil, err
@@ -225,21 +229,25 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 				if val := attrValue(t.Attr, "left"); val != "" {
 					if v, err := strconv.Atoi(val); err == nil {
 						paragraph.indentLeft = v
+						paragraph.indentLeftSet = true
 					}
 				}
 				if val := attrValue(t.Attr, "right"); val != "" {
 					if v, err := strconv.Atoi(val); err == nil {
 						paragraph.indentRight = v
+						paragraph.indentRightSet = true
 					}
 				}
 				if val := attrValue(t.Attr, "firstLine"); val != "" {
 					if v, err := strconv.Atoi(val); err == nil {
 						paragraph.indentFirstLine = v
+						paragraph.indentFirstLineSet = true
 					}
 				}
 				if val := attrValue(t.Attr, "hanging"); val != "" {
 					if v, err := strconv.Atoi(val); err == nil {
 						paragraph.indentHanging = v
+						paragraph.indentHangingSet = true
 					}
 				}
 				if err := skipElement(decoder, t); err != nil {
