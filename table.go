@@ -36,6 +36,7 @@ type TableCell struct {
 	width         int // width in twentieths of a point
 	gridSpan      int
 	verticalMerge TableVerticalMerge
+	verticalAlign WDVerticalAlignment // vertical alignment in cell
 	borders       map[TableBorderSide]*TableBorder
 	shading       *Shading
 }
@@ -72,6 +73,15 @@ const (
 	TableVerticalMergeNone     TableVerticalMerge = ""
 	TableVerticalMergeRestart  TableVerticalMerge = "restart"
 	TableVerticalMergeContinue TableVerticalMerge = "continue"
+)
+
+// WDVerticalAlignment represents vertical alignment options for table cells
+type WDVerticalAlignment string
+
+const (
+	WDVerticalAlignmentTop    WDVerticalAlignment = "top"
+	WDVerticalAlignmentCenter WDVerticalAlignment = "center"
+	WDVerticalAlignmentBottom WDVerticalAlignment = "bottom"
 )
 
 // NewTable creates a new table with the specified number of rows and columns
@@ -580,6 +590,21 @@ func (tc *TableCell) ClearVerticalMerge() {
 	tc.verticalMerge = TableVerticalMergeNone
 }
 
+// SetVerticalAlignment sets the vertical alignment for the cell content.
+func (tc *TableCell) SetVerticalAlignment(alignment WDVerticalAlignment) {
+	tc.verticalAlign = alignment
+}
+
+// VerticalAlignment returns the vertical alignment for the cell content.
+func (tc *TableCell) VerticalAlignment() WDVerticalAlignment {
+	return tc.verticalAlign
+}
+
+// ClearVerticalAlignment resets the vertical alignment to default (top).
+func (tc *TableCell) ClearVerticalAlignment() {
+	tc.verticalAlign = WDVerticalAlignmentTop
+}
+
 // SetShading configures the cell shading.
 func (tc *TableCell) SetShading(pattern, fill, color string) {
 	tc.shading = &Shading{Pattern: pattern, Fill: fill, Color: color}
@@ -644,6 +669,14 @@ func (tc *TableCell) tcPropertiesXML() string {
 		builder.WriteString(`<w:vMerge w:val="restart"/>`)
 	case TableVerticalMergeContinue:
 		builder.WriteString(`<w:vMerge w:val="continue"/>`)
+	}
+	if tc.verticalAlign != WDVerticalAlignmentTop {
+		switch tc.verticalAlign {
+		case WDVerticalAlignmentCenter:
+			builder.WriteString(`<w:vAlign w:val="center"/>`)
+		case WDVerticalAlignmentBottom:
+			builder.WriteString(`<w:vAlign w:val="bottom"/>`)
+		}
 	}
 	if tc.hasBorders() {
 		builder.WriteString(tc.bordersXML())

@@ -877,6 +877,19 @@ func parseTableCellProperties(decoder *xml.Decoder, start xml.StartElement, cell
 				if err := skipElement(decoder, t); err != nil {
 					return err
 				}
+			case "vAlign":
+				val := attrValue(t.Attr, "val")
+				switch val {
+				case "center":
+					cell.verticalAlign = WDVerticalAlignmentCenter
+				case "bottom":
+					cell.verticalAlign = WDVerticalAlignmentBottom
+				default:
+					cell.verticalAlign = WDVerticalAlignmentTop
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
 			case "tcBorders":
 				borders, err := parseTableBorders(decoder, t)
 				if err != nil {
