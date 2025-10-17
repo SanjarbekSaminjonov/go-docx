@@ -15,11 +15,14 @@ import (
 )
 
 const (
-	// EMUs per common measurement unit
-	EMUsPerInch  = 914400
-	EMUsPerCm    = 360000
+	// EMUsPerInch defines the number of English Metric Units (EMUs) in one inch.
+	EMUsPerInch = 914400
+	// EMUsPerCm defines the number of EMUs in one centimeter.
+	EMUsPerCm = 360000
+	// EMUsPerPoint defines the number of EMUs in one typographic point.
 	EMUsPerPoint = 12700
 
+	// defaultImageDPI is the default resolution in dots per inch for image sizing calculations.
 	defaultImageDPI = 96
 )
 

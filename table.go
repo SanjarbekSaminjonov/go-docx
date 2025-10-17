@@ -84,8 +84,17 @@ const (
 	WDVerticalAlignmentBottom WDVerticalAlignment = "bottom"
 )
 
-// NewTable creates a new table with the specified number of rows and columns
+// NewTable creates a new table with the specified number of rows and columns.
+// Rows and cols must be positive; negative or zero values will result in an empty table.
 func NewTable(rows, cols int) *Table {
+	// Ensure non-negative values
+	if rows < 0 {
+		rows = 0
+	}
+	if cols < 0 {
+		cols = 0
+	}
+
 	table := &Table{
 		rows:        make([]*TableRow, rows),
 		gridColumns: cols,

@@ -27,39 +27,53 @@ const (
 	RelTypeCoreProps      = "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties"
 )
 
-// BreakType represents different types of breaks
+// BreakType represents different types of breaks that can be inserted in a Word document.
 type BreakType string
 
 const (
-	BreakTypePage   BreakType = "page"
+	// BreakTypePage inserts a page break, starting a new page.
+	BreakTypePage BreakType = "page"
+	// BreakTypeColumn inserts a column break, starting a new column.
 	BreakTypeColumn BreakType = "column"
-	BreakTypeText   BreakType = "textWrapping"
+	// BreakTypeText inserts a text wrapping break, continuing on a new line.
+	BreakTypeText BreakType = "textWrapping"
 )
 
-// SectionStartType represents how a section starts
+// SectionStartType represents how a section starts in a Word document.
 type SectionStartType string
 
 const (
+	// SectionStartContinuous starts the section on the same page.
 	SectionStartContinuous SectionStartType = "continuous"
-	SectionStartNewColumn  SectionStartType = "nextColumn"
-	SectionStartNewPage    SectionStartType = "nextPage"
-	SectionStartEvenPage   SectionStartType = "evenPage"
-	SectionStartOddPage    SectionStartType = "oddPage"
+	// SectionStartNewColumn starts the section in a new column.
+	SectionStartNewColumn SectionStartType = "nextColumn"
+	// SectionStartNewPage starts the section on a new page.
+	SectionStartNewPage SectionStartType = "nextPage"
+	// SectionStartEvenPage starts the section on the next even page.
+	SectionStartEvenPage SectionStartType = "evenPage"
+	// SectionStartOddPage starts the section on the next odd page.
+	SectionStartOddPage SectionStartType = "oddPage"
 )
 
-// WDUnderline represents underline types
+// WDUnderline represents different underline styles for text formatting.
 type WDUnderline string
 
 const (
-	WDUnderlineNone   WDUnderline = "none"
+	// WDUnderlineNone removes any underline formatting.
+	WDUnderlineNone WDUnderline = "none"
+	// WDUnderlineSingle applies a single underline.
 	WDUnderlineSingle WDUnderline = "single"
+	// WDUnderlineDouble applies a double underline.
 	WDUnderlineDouble WDUnderline = "double"
-	WDUnderlineThick  WDUnderline = "thick"
+	// WDUnderlineThick applies a thick underline.
+	WDUnderlineThick WDUnderline = "thick"
+	// WDUnderlineDotted applies a dotted underline.
 	WDUnderlineDotted WDUnderline = "dotted"
+	// WDUnderlineDashed applies a dashed underline.
 	WDUnderlineDashed WDUnderline = "dash"
 )
 
-// WDColorIndex represents color indices
+// WDColorIndex represents predefined color indices for text highlighting in Word documents.
 type WDColorIndex string
 
 const (
@@ -82,7 +96,7 @@ const (
 	WDColorIndexYellow      WDColorIndex = "yellow"
 )
 
-// WDAlignParagraph represents paragraph alignment
+// WDAlignParagraph represents horizontal alignment options for paragraphs.
 type WDAlignParagraph string
 
 const (
@@ -93,7 +107,7 @@ const (
 	WDAlignParagraphDistribute WDAlignParagraph = "distribute"
 )
 
-// WDTabAlignment represents tab stop alignment options
+// WDTabAlignment represents alignment options for tab stops in paragraphs.
 type WDTabAlignment string
 
 const (
@@ -104,7 +118,7 @@ const (
 	WDTabAlignmentBar     WDTabAlignment = "bar"
 )
 
-// WDTabLeader represents the leader characters used for tab stops
+// WDTabLeader represents leader character styles that fill the space before a tab stop.
 type WDTabLeader string
 
 const (

@@ -80,7 +80,8 @@ func OpenDocument(path string) (*Document, error) {
 	}, nil
 }
 
-// Get XML content of the document as string
+// Get XML content of the document as string.
+// Returns an error if the document has no main document part.
 func (d *Document) GetXML() (string, error) {
 	if d.docPart == nil {
 		return "", fmt.Errorf("document has no main document part")
@@ -117,8 +118,9 @@ func (d *Document) AddPicture(path string, widthEMU, heightEMU int64) (*Paragrap
 	return paragraph, picture, nil
 }
 
-// AddHeading adds a heading paragraph with the specified text and level
-// Level 0 creates a Title style, levels 1-9 create Heading styles
+// AddHeading adds a heading paragraph with the specified text and level.
+// Level 0 creates a Title style, levels 1-9 create Heading styles.
+// Returns an error if level is outside the valid range [0-9].
 func (d *Document) AddHeading(text string, level int) (*Paragraph, error) {
 	if level < 0 || level > 9 {
 		return nil, fmt.Errorf("level must be in range 0-9, got %d", level)
@@ -148,7 +150,9 @@ func (d *Document) AddPageBreak() {
 	run.AddBreak(BreakTypePage)
 }
 
-// AddNumberedParagraph adds a paragraph with default decimal numbering at the specified level
+// AddNumberedParagraph adds a paragraph with default decimal numbering at the specified level.
+// Level must be non-negative (negative values will be treated as 0).
+// Returns the created paragraph.
 func (d *Document) AddNumberedParagraph(text string, level int) *Paragraph {
 	if level < 0 {
 		level = 0
@@ -160,7 +164,9 @@ func (d *Document) AddNumberedParagraph(text string, level int) *Paragraph {
 	return paragraph
 }
 
-// AddBulletedParagraph adds a paragraph with default bullet numbering at the specified level
+// AddBulletedParagraph adds a paragraph with default bullet numbering at the specified level.
+// Level must be non-negative (negative values will be treated as 0).
+// Returns the created paragraph.
 func (d *Document) AddBulletedParagraph(text string, level int) *Paragraph {
 	if level < 0 {
 		level = 0
