@@ -135,7 +135,12 @@ func (t *Table) Row(index int) *TableRow {
 
 // AddRow adds a new row to the table
 func (t *Table) AddRow() *TableRow {
+	// Agar table'da qatorlar mavjud bo'lsa, oxirgi qatordagi ustunlar sonidan foydalanish
 	cols := t.gridColumns
+	if len(t.rows) > 0 && t.rows[len(t.rows)-1] != nil {
+		cols = len(t.rows[len(t.rows)-1].cells)
+	}
+
 	row := &TableRow{
 		table: t,
 		cells: make([]*TableCell, cols),
@@ -167,7 +172,20 @@ func (t *Table) InsertRowAt(index int) *TableRow {
 	if index > len(t.rows) {
 		index = len(t.rows)
 	}
+
+	// Agar table'da qatorlar mavjud bo'lsa, avvalgi qatordagi ustunlar sonidan foydalanish
 	cols := t.gridColumns
+	if len(t.rows) > 0 {
+		// Yaqin qatordagi ustunlar sonini olish
+		refIndex := index - 1
+		if refIndex < 0 && len(t.rows) > 0 {
+			refIndex = 0 // Birinchi qatorga qo'shyotganda, birinchi qatorni reference qilish
+		}
+		if refIndex >= 0 && refIndex < len(t.rows) && t.rows[refIndex] != nil {
+			cols = len(t.rows[refIndex].cells)
+		}
+	}
+
 	row := &TableRow{
 		table: t,
 		cells: make([]*TableCell, cols),
