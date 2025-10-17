@@ -1,0 +1,56 @@
+name: Examples Check
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'examples/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'examples/**'
+
+jobs:
+  check-examples:
+    name: Validate Examples
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+
+    - name: Build basic example
+      run: |
+        cd examples
+        go build -o /tmp/basic_example basic_example.go
+        echo "✓ basic_example.go compiles successfully"
+
+    - name: Build error handling example
+      run: |
+        cd examples
+        go build -o /tmp/error_handling_example error_handling_example.go
+        echo "✓ error_handling_example.go compiles successfully"
+
+    - name: Check example formatting
+      run: |
+        cd examples
+        if [ -n "$(gofmt -l *.go)" ]; then
+          echo "Example code is not formatted:"
+          gofmt -d *.go
+          exit 1
+        fi
+        echo "✓ All examples are properly formatted"
+
+    - name: Vet examples
+      run: |
+        cd examples
+        for file in *.go; do
+          echo "Checking $file..."
+          go vet "$file" || exit 1
+        done
+        echo "✓ All examples pass go vet"

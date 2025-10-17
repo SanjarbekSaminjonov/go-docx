@@ -28,33 +28,51 @@ func NewCoreProperties() *CoreProperties {
 	}
 }
 
-// SetTitle sets the document title
+// SetTitle sets the document title.
 func (cp *CoreProperties) SetTitle(title string) {
+	if cp == nil {
+		return
+	}
 	cp.Title = title
 }
 
-// SetSubject sets the document subject
+// SetSubject sets the document subject.
 func (cp *CoreProperties) SetSubject(subject string) {
+	if cp == nil {
+		return
+	}
 	cp.Subject = subject
 }
 
-// SetCreator sets the document creator/author
+// SetCreator sets the document creator/author.
 func (cp *CoreProperties) SetCreator(creator string) {
+	if cp == nil {
+		return
+	}
 	cp.Creator = creator
 }
 
-// SetKeywords sets the document keywords
+// SetKeywords sets the document keywords.
 func (cp *CoreProperties) SetKeywords(keywords string) {
+	if cp == nil {
+		return
+	}
 	cp.Keywords = keywords
 }
 
-// SetDescription sets the document description
+// SetDescription sets the document description.
 func (cp *CoreProperties) SetDescription(description string) {
+	if cp == nil {
+		return
+	}
 	cp.Description = description
 }
 
-// SetCategory sets the document category
+// SetCategory sets the document category.
 func (cp *CoreProperties) SetCategory(category string) {
+	if cp == nil {
+		return
+	}
 	cp.Category = category
 }
 
