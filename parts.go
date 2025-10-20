@@ -1435,6 +1435,150 @@ func (dp *DocumentPart) Sections() []*Section {
 	return dp.sections
 }
 
+// InsertTableAfterParagraph inserts a table immediately after the specified paragraph
+func (dp *DocumentPart) InsertTableAfterParagraph(paragraph *Paragraph, rows, cols int) (*Table, error) {
+	if paragraph == nil {
+		return nil, fmt.Errorf("paragraph cannot be nil")
+	}
+
+	// Find the index of the paragraph in bodyElements
+	paragraphIndex := -1
+	for i, elem := range dp.bodyElements {
+		if elem.paragraph == paragraph {
+			paragraphIndex = i
+			break
+		}
+	}
+
+	if paragraphIndex == -1 {
+		return nil, fmt.Errorf("paragraph not found in document")
+	}
+
+	// Create new table
+	table := NewTable(rows, cols)
+	table.setOwner(dp)
+
+	// Insert the table after the paragraph in bodyElements
+	dp.bodyElements = append(dp.bodyElements[:paragraphIndex+1],
+		append([]documentElement{{table: table}}, dp.bodyElements[paragraphIndex+1:]...)...)
+
+	// Add to tables list
+	dp.tables = append(dp.tables, table)
+
+	// Update the XML data
+	dp.updateXMLData()
+
+	return table, nil
+}
+
+// RemoveParagraph removes the specified paragraph from the document
+func (dp *DocumentPart) RemoveParagraph(paragraph *Paragraph) error {
+	if paragraph == nil {
+		return fmt.Errorf("paragraph cannot be nil")
+	}
+
+	// Find and remove from paragraphs slice
+	paragraphIndex := -1
+	for i, p := range dp.paragraphs {
+		if p == paragraph {
+			paragraphIndex = i
+			break
+		}
+	}
+
+	if paragraphIndex == -1 {
+		return fmt.Errorf("paragraph not found in document")
+	}
+
+	// Remove from paragraphs slice
+	dp.paragraphs = append(dp.paragraphs[:paragraphIndex], dp.paragraphs[paragraphIndex+1:]...)
+
+	// Find and remove from bodyElements
+	for i, elem := range dp.bodyElements {
+		if elem.paragraph == paragraph {
+			dp.bodyElements = append(dp.bodyElements[:i], dp.bodyElements[i+1:]...)
+			break
+		}
+	}
+
+	// Update the XML data
+	dp.updateXMLData()
+
+	return nil
+}
+
+// RemoveTable removes the specified table from the document
+func (dp *DocumentPart) RemoveTable(table *Table) error {
+	if table == nil {
+		return fmt.Errorf("table cannot be nil")
+	}
+
+	// Find and remove from tables slice
+	tableIndex := -1
+	for i, t := range dp.tables {
+		if t == table {
+			tableIndex = i
+			break
+		}
+	}
+
+	if tableIndex == -1 {
+		return fmt.Errorf("table not found in document")
+	}
+
+	// Remove from tables slice
+	dp.tables = append(dp.tables[:tableIndex], dp.tables[tableIndex+1:]...)
+
+	// Find and remove from bodyElements
+	for i, elem := range dp.bodyElements {
+		if elem.table == table {
+			dp.bodyElements = append(dp.bodyElements[:i], dp.bodyElements[i+1:]...)
+			break
+		}
+	}
+
+	// Update the XML data
+	dp.updateXMLData()
+
+	return nil
+}
+
+// RemoveSection removes the specified section from the document
+func (dp *DocumentPart) RemoveSection(section *Section) error {
+	if section == nil {
+		return fmt.Errorf("section cannot be nil")
+	}
+
+	// Find and remove from sections slice
+	sectionIndex := -1
+	for i, s := range dp.sections {
+		if s == section {
+			sectionIndex = i
+			break
+		}
+	}
+
+	if sectionIndex == -1 {
+		return fmt.Errorf("section not found in document")
+	}
+
+	// Remove from sections slice
+	dp.sections = append(dp.sections[:sectionIndex], dp.sections[sectionIndex+1:]...)
+
+	// Find and remove from bodyElements
+	for i, elem := range dp.bodyElements {
+		if elem.section == section {
+			dp.bodyElements = append(dp.bodyElements[:i], dp.bodyElements[i+1:]...)
+			break
+		}
+	}
+
+	// Update the XML data
+	dp.updateXMLData()
+
+	return nil
+}
+
 func (dp *DocumentPart) updateXMLData() {
 	var bodyContent strings.Builder
 

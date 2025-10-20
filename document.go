@@ -192,6 +192,38 @@ func (d *Document) Sections() []*Section {
 	return d.docPart.Sections()
 }
 
+// InsertTableAfterParagraph inserts a table immediately after the specified paragraph
+func (d *Document) InsertTableAfterParagraph(paragraph *Paragraph, rows, cols int) (*Table, error) {
+	if d.docPart == nil {
+		return nil, fmt.Errorf("document has no main document part")
+	}
+	return d.docPart.InsertTableAfterParagraph(paragraph, rows, cols)
+}
+
+// RemoveParagraph removes the specified paragraph from the document
+func (d *Document) RemoveParagraph(paragraph *Paragraph) error {
+	if d.docPart == nil {
+		return fmt.Errorf("document has no main document part")
+	}
+	return d.docPart.RemoveParagraph(paragraph)
+}
+
+// RemoveTable removes the specified table from the document
+func (d *Document) RemoveTable(table *Table) error {
+	if d.docPart == nil {
+		return fmt.Errorf("document has no main document part")
+	}
+	return d.docPart.RemoveTable(table)
+}
+
+// RemoveSection removes the specified section from the document
+func (d *Document) RemoveSection(section *Section) error {
+	if d.docPart == nil {
+		return fmt.Errorf("document has no main document part")
+	}
+	return d.docPart.RemoveSection(section)
+}
+
 // Header returns the default header for the first section, creating both if necessary.
 func (d *Document) Header() (*Header, error) {
 	return d.HeaderOfType(HeaderTypeDefault)

@@ -363,6 +363,43 @@ table.MergeCellsHorizontally(0, 0, 2) // row, startCol, endCol
 
 // Merge cells vertically
 table.MergeCellsVertically(0, 0, 2) // col, startRow, endRow
+
+// Insert table after a specific paragraph
+paragraph := doc.AddParagraph("This paragraph will be followed by a table")
+newTable, err := doc.InsertTableAfterParagraph(paragraph, 2, 3)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+### Document Manipulation
+
+```go
+// Remove a paragraph
+paragraph := doc.AddParagraph("Temporary text")
+err := doc.RemoveParagraph(paragraph)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Remove a table
+table := doc.AddTable(2, 2)
+err := doc.RemoveTable(table)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Remove a section
+section := doc.AddSection(docx.SectionStartNewPage)
+err := doc.RemoveSection(section)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Get all document elements
+paragraphs := doc.Paragraphs()
+tables := doc.Tables()
+sections := doc.Sections()
 ```
 
 ### Images 📷

@@ -272,6 +272,11 @@ func (p *Paragraph) Runs() []*Run {
 	return p.runs
 }
 
+// ClearRuns removes all runs from the paragraph
+func (p *Paragraph) ClearRuns() {
+	p.runs = nil
+}
+
 // Text returns the combined text of all runs in the paragraph
 func (p *Paragraph) Text() string {
 	var text strings.Builder

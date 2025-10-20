@@ -11,6 +11,7 @@ type Table struct {
 	rows        []*TableRow
 	owner       *DocumentPart
 	gridColumns int
+	width       int // table width in twentieths of a point (0 for auto)
 	borders     map[TableBorderSide]*TableBorder
 	shading     *Shading
 	cellMargins *TableCellMargins
@@ -133,6 +134,11 @@ func (t *Table) Row(index int) *TableRow {
 	return t.rows[index]
 }
 
+// GetRow is an alias for Row() - returns the row at the specified index
+func (t *Table) GetRow(index int) *TableRow {
+	return t.Row(index)
+}
+
 // AddRow adds a new row to the table
 func (t *Table) AddRow() *TableRow {
 	// Agar table'da qatorlar mavjud bo'lsa, oxirgi qatordagi ustunlar sonidan foydalanish
@@ -224,7 +230,17 @@ func (t *Table) SetBorder(side TableBorderSide, border TableBorder) {
 	t.borders[side] = &copy
 }
 
-// Border returns the configured border for the specified side.
+// SetWidth sets the table width in twentieths of a point (0 for auto width)
+func (t *Table) SetWidth(width int) {
+	t.width = width
+}
+
+// Width returns the table width in twentieths of a point (0 means auto)
+func (t *Table) Width() int {
+	return t.width
+}
+
+// Border returns the configured border for the table on the specified side.
 func (t *Table) Border(side TableBorderSide) (*TableBorder, bool) {
 	if t.borders == nil {
 		return nil, false
@@ -336,7 +352,14 @@ func (t *Table) MergeCellsVertically(column, startRow, endRow int) error {
 func (t *Table) tblPropertiesXML() string {
 	var builder strings.Builder
 	builder.WriteString("<w:tblPr>")
-	builder.WriteString(`<w:tblW w:w="0" w:type="auto"/>`)
+	
+	// Table width
+	if t.width > 0 {
+		builder.WriteString(fmt.Sprintf(`<w:tblW w:w="%d" w:type="dxa"/>`, t.width))
+	} else {
+		builder.WriteString(`<w:tblW w:w="0" w:type="auto"/>`)
+	}
+	
 	if t.hasBorders() {
 		builder.WriteString(t.bordersXML())
 	}
@@ -500,6 +523,11 @@ func (tr *TableRow) Cell(index int) *TableCell {
 	return tr.cells[index]
 }
 
+// GetCell is an alias for Cell() - returns the cell at the specified index
+func (tr *TableRow) GetCell(index int) *TableCell {
+	return tr.Cell(index)
+}
+
 // ToXML converts the table row to WordprocessingML XML
 func (tr *TableRow) ToXML() string {
 	var cellsXML strings.Builder
@@ -574,6 +602,11 @@ func (tc *TableCell) SetWidth(width int) {
 // Width returns the width of the cell in twentieths of a point
 func (tc *TableCell) Width() int {
 	return tc.width
+}
+
+// ClearParagraphs removes all paragraphs from the cell
+func (tc *TableCell) ClearParagraphs() {
+	tc.paragraphs = nil
 }
 
 // SetGridSpan configures the number of grid columns spanned by this cell.

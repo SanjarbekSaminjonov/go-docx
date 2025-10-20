@@ -1013,3 +1013,473 @@ func TestGetXML(t *testing.T) {
 		}
 	})
 }
+
+func TestInsertTableAfterParagraph(t *testing.T) {
+	doc := NewDocument()
+
+	// Add some paragraphs
+	_ = doc.AddParagraph("First paragraph")
+	p2 := doc.AddParagraph("Second paragraph")
+	_ = doc.AddParagraph("Third paragraph")
+
+	// Insert table after second paragraph
+	table, err := doc.InsertTableAfterParagraph(p2, 2, 3)
+	if err != nil {
+		t.Fatalf("InsertTableAfterParagraph() failed: %v", err)
+	}
+
+	if table == nil {
+		t.Fatal("InsertTableAfterParagraph() returned nil table")
+	}
+
+	// Verify table structure
+	if len(table.Rows()) != 2 {
+		t.Errorf("Expected 2 rows, got %d", len(table.Rows()))
+	}
+
+	if len(table.Row(0).Cells()) != 3 {
+		t.Errorf("Expected 3 cells, got %d", len(table.Row(0).Cells()))
+	}
+
+	// Verify order of elements
+	bodyElements := doc.docPart.bodyElements
+
+	// Find paragraphs and table in bodyElements (ignoring sections)
+	var foundElements []string
+	for _, elem := range bodyElements {
+		if elem.paragraph != nil {
+			foundElements = append(foundElements, "paragraph")
+		} else if elem.table != nil {
+			foundElements = append(foundElements, "table")
+		}
+	}
+
+	// Expected order: paragraph, paragraph, table, paragraph
+	expectedOrder := []string{"paragraph", "paragraph", "table", "paragraph"}
+
+	if len(foundElements) != len(expectedOrder) {
+		t.Fatalf("Expected %d elements (paragraphs+tables), got %d", len(expectedOrder), len(foundElements))
+	}
+
+	for i, expected := range expectedOrder {
+		if foundElements[i] != expected {
+			t.Errorf("Element at position %d: expected %s, got %s", i, expected, foundElements[i])
+		}
+	}
+
+	// Test error case: nil paragraph
+	_, err = doc.InsertTableAfterParagraph(nil, 2, 2)
+	if err == nil {
+		t.Error("InsertTableAfterParagraph() should return error for nil paragraph")
+	}
+
+	// Test error case: paragraph not in document
+	otherDoc := NewDocument()
+	otherP := otherDoc.AddParagraph("Other paragraph")
+	_, err = doc.InsertTableAfterParagraph(otherP, 2, 2)
+	if err == nil {
+		t.Error("InsertTableAfterParagraph() should return error for paragraph not in document")
+	}
+
+	// Test round trip
+	tempFile := filepath.Join(t.TempDir(), "test_insert_table.docx")
+	if err := doc.SaveAs(tempFile); err != nil {
+		t.Fatalf("Failed to save document: %v", err)
+	}
+	doc.Close()
+
+	reopened, err := OpenDocument(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to open document: %v", err)
+	}
+	defer reopened.Close()
+
+	// Verify structure after reopening
+	if len(reopened.Paragraphs()) != 3 {
+		t.Errorf("Expected 3 paragraphs after reopening, got %d", len(reopened.Paragraphs()))
+	}
+
+	if len(reopened.Tables()) != 1 {
+		t.Errorf("Expected 1 table after reopening, got %d", len(reopened.Tables()))
+	}
+
+	// Verify order is preserved
+	if reopened.Paragraphs()[0].Text() != "First paragraph" {
+		t.Errorf("First paragraph text mismatch: got %q", reopened.Paragraphs()[0].Text())
+	}
+
+	if reopened.Paragraphs()[2].Text() != "Third paragraph" {
+		t.Errorf("Third paragraph text mismatch: got %q", reopened.Paragraphs()[2].Text())
+	}
+}
+
+func TestRemoveParagraph(t *testing.T) {
+	doc := NewDocument()
+
+	// Add some paragraphs
+	p1 := doc.AddParagraph("First paragraph")
+	p2 := doc.AddParagraph("Second paragraph")
+	p3 := doc.AddParagraph("Third paragraph")
+
+	// Verify initial count
+	if len(doc.Paragraphs()) != 3 {
+		t.Fatalf("Expected 3 paragraphs, got %d", len(doc.Paragraphs()))
+	}
+
+	// Remove middle paragraph
+	err := doc.RemoveParagraph(p2)
+	if err != nil {
+		t.Fatalf("RemoveParagraph() failed: %v", err)
+	}
+
+	// Verify count after removal
+	if len(doc.Paragraphs()) != 2 {
+		t.Errorf("Expected 2 paragraphs after removal, got %d", len(doc.Paragraphs()))
+	}
+
+	// Verify remaining paragraphs
+	if doc.Paragraphs()[0] != p1 {
+		t.Error("First paragraph should still be p1")
+	}
+
+	if doc.Paragraphs()[1] != p3 {
+		t.Error("Second paragraph should now be p3")
+	}
+
+	// Test error case: nil paragraph
+	err = doc.RemoveParagraph(nil)
+	if err == nil {
+		t.Error("RemoveParagraph() should return error for nil paragraph")
+	}
+
+	// Test error case: paragraph already removed
+	err = doc.RemoveParagraph(p2)
+	if err == nil {
+		t.Error("RemoveParagraph() should return error for already removed paragraph")
+	}
+
+	// Test error case: paragraph not in document
+	otherDoc := NewDocument()
+	otherP := otherDoc.AddParagraph("Other paragraph")
+	err = doc.RemoveParagraph(otherP)
+	if err == nil {
+		t.Error("RemoveParagraph() should return error for paragraph not in document")
+	}
+
+	// Test round trip
+	tempFile := filepath.Join(t.TempDir(), "test_remove_paragraph.docx")
+	if err := doc.SaveAs(tempFile); err != nil {
+		t.Fatalf("Failed to save document: %v", err)
+	}
+	doc.Close()
+
+	reopened, err := OpenDocument(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to open document: %v", err)
+	}
+	defer reopened.Close()
+
+	// Verify structure after reopening
+	if len(reopened.Paragraphs()) != 2 {
+		t.Errorf("Expected 2 paragraphs after reopening, got %d", len(reopened.Paragraphs()))
+	}
+
+	if reopened.Paragraphs()[0].Text() != "First paragraph" {
+		t.Errorf("First paragraph text mismatch: got %q", reopened.Paragraphs()[0].Text())
+	}
+
+	if reopened.Paragraphs()[1].Text() != "Third paragraph" {
+		t.Errorf("Second paragraph text mismatch: got %q", reopened.Paragraphs()[1].Text())
+	}
+}
+
+func TestRemoveTable(t *testing.T) {
+	doc := NewDocument()
+
+	// Add paragraphs and tables
+	doc.AddParagraph("First paragraph")
+	table1 := doc.AddTable(2, 2)
+	table1.Row(0).Cell(0).SetText("Table 1")
+	doc.AddParagraph("Second paragraph")
+	table2 := doc.AddTable(3, 3)
+	table2.Row(0).Cell(0).SetText("Table 2")
+	doc.AddParagraph("Third paragraph")
+
+	// Verify initial count
+	if len(doc.Tables()) != 2 {
+		t.Fatalf("Expected 2 tables, got %d", len(doc.Tables()))
+	}
+
+	// Remove first table
+	err := doc.RemoveTable(table1)
+	if err != nil {
+		t.Fatalf("RemoveTable() failed: %v", err)
+	}
+
+	// Verify count after removal
+	if len(doc.Tables()) != 1 {
+		t.Errorf("Expected 1 table after removal, got %d", len(doc.Tables()))
+	}
+
+	// Verify remaining table
+	if doc.Tables()[0] != table2 {
+		t.Error("Remaining table should be table2")
+	}
+
+	// Test error case: nil table
+	err = doc.RemoveTable(nil)
+	if err == nil {
+		t.Error("RemoveTable() should return error for nil table")
+	}
+
+	// Test error case: table already removed
+	err = doc.RemoveTable(table1)
+	if err == nil {
+		t.Error("RemoveTable() should return error for already removed table")
+	}
+
+	// Test round trip
+	tempFile := filepath.Join(t.TempDir(), "test_remove_table.docx")
+	if err := doc.SaveAs(tempFile); err != nil {
+		t.Fatalf("Failed to save document: %v", err)
+	}
+	doc.Close()
+
+	reopened, err := OpenDocument(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to open document: %v", err)
+	}
+	defer reopened.Close()
+
+	// Verify structure after reopening
+	if len(reopened.Tables()) != 1 {
+		t.Errorf("Expected 1 table after reopening, got %d", len(reopened.Tables()))
+	}
+
+	if len(reopened.Paragraphs()) != 3 {
+		t.Errorf("Expected 3 paragraphs after reopening, got %d", len(reopened.Paragraphs()))
+	}
+}
+
+func TestRemoveSection(t *testing.T) {
+	doc := NewDocument()
+
+	// Add content with sections
+	doc.AddParagraph("First paragraph")
+	section1 := doc.AddSection(SectionStartNewPage)
+	section1.SetPageSize(11906, 16838)
+
+	doc.AddParagraph("Second paragraph")
+	section2 := doc.AddSection(SectionStartContinuous)
+	section2.SetPageSize(16838, 11906) // Landscape
+
+	doc.AddParagraph("Third paragraph")
+
+	// Verify initial count
+	// Note: NewDocument() creates a default section, so we have 3 sections total
+	initialSectionCount := len(doc.Sections())
+	if initialSectionCount < 2 {
+		t.Fatalf("Expected at least 2 sections, got %d", initialSectionCount)
+	}
+
+	// Remove first section
+	err := doc.RemoveSection(section1)
+	if err != nil {
+		t.Fatalf("RemoveSection() failed: %v", err)
+	}
+
+	// Verify count after removal (should be one less than initial)
+	if len(doc.Sections()) != initialSectionCount-1 {
+		t.Errorf("Expected %d sections after removal, got %d", initialSectionCount-1, len(doc.Sections()))
+	}
+
+	// Verify section2 still exists in the sections list
+	found := false
+	for _, s := range doc.Sections() {
+		if s == section2 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("section2 should still be in the sections list")
+	}
+
+	// Test error case: nil section
+	err = doc.RemoveSection(nil)
+	if err == nil {
+		t.Error("RemoveSection() should return error for nil section")
+	}
+
+	// Test error case: section already removed
+	err = doc.RemoveSection(section1)
+	if err == nil {
+		t.Error("RemoveSection() should return error for already removed section")
+	}
+}
+
+func TestGetRowGetCell(t *testing.T) {
+	doc := NewDocument()
+
+	// Create a table
+	table := doc.AddTable(2, 3)
+
+	// Test GetRow (should be same as Row)
+	row1 := table.GetRow(0)
+	if row1 == nil {
+		t.Fatal("GetRow(0) returned nil")
+	}
+
+	row2 := table.Row(0)
+	if row1 != row2 {
+		t.Error("GetRow() and Row() should return the same reference")
+	}
+
+	// Test GetCell (should be same as Cell)
+	cell1 := row1.GetCell(0)
+	if cell1 == nil {
+		t.Fatal("GetCell(0) returned nil")
+	}
+
+	cell2 := row1.Cell(0)
+	if cell1 != cell2 {
+		t.Error("GetCell() and Cell() should return the same reference")
+	}
+
+	// Test chaining methods as shown in user's example
+	table.GetRow(0).GetCell(1).AddParagraph().AddRun("Test Value").SetBold(true)
+	table.GetRow(1).GetCell(0).AddParagraph().AddRun("Another Value").SetItalic(true)
+
+	// Verify content was added (trim whitespace because cells have default empty paragraph)
+	cellText := strings.TrimSpace(table.GetRow(0).GetCell(1).Text())
+	if cellText != "Test Value" {
+		t.Errorf("Expected 'Test Value', got '%s'", cellText)
+	}
+
+	// Test out of bounds
+	if table.GetRow(10) != nil {
+		t.Error("GetRow(10) should return nil for out of bounds")
+	}
+
+	if row1.GetCell(10) != nil {
+		t.Error("GetCell(10) should return nil for out of bounds")
+	}
+}
+
+func TestClearRuns(t *testing.T) {
+	doc := NewDocument()
+
+	// Create a paragraph with multiple runs
+	p := doc.AddParagraph()
+	p.AddRun("First run ")
+	p.AddRun("Second run ")
+	p.AddRun("Third run")
+
+	// Verify initial state
+	if len(p.Runs()) != 3 {
+		t.Fatalf("Expected 3 runs, got %d", len(p.Runs()))
+	}
+
+	if p.Text() != "First run Second run Third run" {
+		t.Errorf("Expected 'First run Second run Third run', got '%s'", p.Text())
+	}
+
+	// Clear all runs
+	p.ClearRuns()
+
+	// Verify runs are cleared
+	if len(p.Runs()) != 0 {
+		t.Errorf("Expected 0 runs after ClearRuns(), got %d", len(p.Runs()))
+	}
+
+	if p.Text() != "" {
+		t.Errorf("Expected empty text after ClearRuns(), got '%s'", p.Text())
+	}
+
+	// Add new run after clearing
+	p.AddRun("New content")
+
+	if len(p.Runs()) != 1 {
+		t.Fatalf("Expected 1 run after adding new content, got %d", len(p.Runs()))
+	}
+
+	if p.Text() != "New content" {
+		t.Errorf("Expected 'New content', got '%s'", p.Text())
+	}
+}
+
+func TestTemplateReplacement(t *testing.T) {
+	doc := NewDocument()
+
+	// Add template content
+	doc.AddParagraph("Document Title: ${title}")
+	doc.AddParagraph("")
+	placeholder := doc.AddParagraph("${signers}")
+	doc.AddParagraph("")
+	doc.AddParagraph("End of document")
+
+	// Replace ${title}
+	for _, p := range doc.Paragraphs() {
+		text := p.Text()
+		if strings.Contains(text, "${title}") {
+			p.ClearRuns()
+			p.AddRun(strings.ReplaceAll(text, "${title}", "Important Contract"))
+		}
+	}
+
+	// Replace ${signers} with table
+	table, err := doc.InsertTableAfterParagraph(placeholder, 2, 2)
+	if err != nil {
+		t.Fatalf("InsertTableAfterParagraph() failed: %v", err)
+	}
+
+	// Fill table using GetRow/GetCell
+	table.GetRow(0).GetCell(0).AddParagraph().AddRun("Name").SetBold(true)
+	table.GetRow(0).GetCell(1).AddParagraph().AddRun("Signature").SetBold(true)
+	table.GetRow(1).GetCell(0).AddParagraph().AddRun("John Doe")
+	table.GetRow(1).GetCell(1).AddParagraph().AddRun("_________________")
+
+	// Remove placeholder
+	if err := doc.RemoveParagraph(placeholder); err != nil {
+		t.Fatalf("RemoveParagraph() failed: %v", err)
+	}
+
+	// Verify results
+	found := false
+	for _, p := range doc.Paragraphs() {
+		if strings.Contains(p.Text(), "Important Contract") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Title replacement did not work")
+	}
+
+	if len(doc.Tables()) != 1 {
+		t.Errorf("Expected 1 table, got %d", len(doc.Tables()))
+	}
+
+	cellText := strings.TrimSpace(table.GetRow(0).GetCell(0).Text())
+	if cellText != "Name" {
+		t.Errorf("Expected 'Name' in first cell, got '%s'", cellText)
+	}
+
+	// Test round trip
+	tempFile := filepath.Join(t.TempDir(), "test_template.docx")
+	if err := doc.SaveAs(tempFile); err != nil {
+		t.Fatalf("Failed to save document: %v", err)
+	}
+	doc.Close()
+
+	reopened, err := OpenDocument(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to open document: %v", err)
+	}
+	defer reopened.Close()
+
+	// Verify after reopening
+	if len(reopened.Tables()) != 1 {
+		t.Errorf("Expected 1 table after reopening, got %d", len(reopened.Tables()))
+	}
+}
