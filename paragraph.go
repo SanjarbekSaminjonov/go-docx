@@ -38,7 +38,9 @@ type Paragraph struct {
 	pageBreakBefore    *bool
 	widowControl       *bool
 	borders            map[ParagraphBorderSide]*ParagraphBorder
+	bordersDefined     bool
 	shading            *ParagraphShading
+	markRunProperties  []string
 	// section holds a paragraph-level section break (sectPr) if present.
 	section *Section
 }
@@ -81,10 +83,11 @@ type ParagraphShading struct {
 // NewParagraph creates a new paragraph
 func NewParagraph() *Paragraph {
 	return &Paragraph{
-		runs:      make([]*Run, 0),
-		tabStops:  make([]TabStop, 0),
-		alignment: WDAlignParagraphLeft,
-		borders:   make(map[ParagraphBorderSide]*ParagraphBorder),
+		runs:              make([]*Run, 0),
+		tabStops:          make([]TabStop, 0),
+		alignment:         WDAlignParagraphLeft,
+		borders:           make(map[ParagraphBorderSide]*ParagraphBorder),
+		markRunProperties: make([]string, 0),
 	}
 }
 
@@ -163,10 +166,14 @@ func (p *Paragraph) SetBorder(side ParagraphBorderSide, border ParagraphBorder) 
 	}
 	if border.Style == "" {
 		delete(p.borders, side)
+		if len(p.borders) == 0 {
+			p.bordersDefined = false
+		}
 		return
 	}
 	copy := border
 	p.borders[side] = &copy
+	p.bordersDefined = true
 }
 
 // Border returns the configured border for the given side, if any.
@@ -190,6 +197,7 @@ func (p *Paragraph) ClearBorders() {
 	if len(p.borders) > 0 {
 		p.borders = make(map[ParagraphBorderSide]*ParagraphBorder)
 	}
+	p.bordersDefined = false
 }
 
 // SetShading configures the paragraph shading (pattern/fill/foreground).
@@ -312,7 +320,11 @@ func (p *Paragraph) Clear() {
 	p.pageBreakBefore = nil
 	p.widowControl = nil
 	p.borders = make(map[ParagraphBorderSide]*ParagraphBorder)
+	p.bordersDefined = false
 	p.shading = nil
+	if p.markRunProperties != nil {
+		p.markRunProperties = p.markRunProperties[:0]
+	}
 }
 
 // ToXML converts the paragraph to WordprocessingML XML
@@ -323,7 +335,7 @@ func (p *Paragraph) ToXML() string {
 	}
 
 	var pPr string
-	if p.style != "" || p.alignment != WDAlignParagraphLeft || p.numberingApplied || p.hasSpacing() || p.hasIndentation() || p.hasTabStops() || p.hasBorders() || p.hasShading() || p.hasKeepSettings() || p.section != nil {
+	if p.style != "" || p.alignment != WDAlignParagraphLeft || p.numberingApplied || p.hasSpacing() || p.hasIndentation() || p.hasTabStops() || p.hasBorders() || p.hasShading() || p.hasKeepSettings() || len(p.markRunProperties) > 0 || p.section != nil {
 		var pPrContent strings.Builder
 
 		if p.style != "" {
@@ -360,6 +372,14 @@ func (p *Paragraph) ToXML() string {
 
 		if p.hasKeepSettings() {
 			pPrContent.WriteString(p.keepSettingsXML())
+		}
+
+		if len(p.markRunProperties) > 0 {
+			for _, raw := range p.markRunProperties {
+				if raw != "" {
+					pPrContent.WriteString(raw)
+				}
+			}
 		}
 
 		if p.section != nil {
@@ -537,7 +557,7 @@ func (p *Paragraph) hasTabStops() bool {
 }
 
 func (p *Paragraph) hasBorders() bool {
-	return len(p.borders) > 0
+	return p.bordersDefined || len(p.borders) > 0
 }
 
 func (p *Paragraph) hasShading() bool {
@@ -546,6 +566,9 @@ func (p *Paragraph) hasShading() bool {
 
 func (p *Paragraph) bordersXML() string {
 	if len(p.borders) == 0 {
+		if p.bordersDefined {
+			return "<w:pBdr/>"
+		}
 		return ""
 	}
 	ordered := []ParagraphBorderSide{
@@ -584,6 +607,9 @@ func (p *Paragraph) bordersXML() string {
 	}
 	builder.WriteString("</w:pBdr>")
 	if !written {
+		if p.bordersDefined {
+			return "<w:pBdr/>"
+		}
 		return ""
 	}
 	return builder.String()
@@ -698,6 +724,7 @@ type Run struct {
 	charSpacing     *int
 	kern            *int
 	baselineShift   *int
+	spacePreserve   bool
 }
 
 // NewRun creates a new run with the specified text
@@ -720,6 +747,19 @@ func (r *Run) Text() string {
 // SetText sets the text content of the run
 func (r *Run) SetText(text string) {
 	r.text = text
+	if needsSpacePreserve(text) {
+		r.spacePreserve = true
+	}
+}
+
+// SetSpacePreserve overrides automatic detection and forces xml:space="preserve" when true.
+func (r *Run) SetSpacePreserve(preserve bool) {
+	r.spacePreserve = preserve
+}
+
+// SpacePreserve reports whether xml:space="preserve" will be emitted for this run.
+func (r *Run) SpacePreserve() bool {
+	return r.spacePreserve
 }
 
 // SetBold sets the bold formatting
@@ -1088,7 +1128,11 @@ func (r *Run) ToXML() string {
 		escaped := strings.ReplaceAll(r.text, "&", "&amp;")
 		escaped = strings.ReplaceAll(escaped, "<", "&lt;")
 		escaped = strings.ReplaceAll(escaped, ">", "&gt;")
-		content.WriteString(fmt.Sprintf(`<w:t>%s</w:t>`, escaped))
+		if r.spacePreserve || needsSpacePreserve(r.text) {
+			content.WriteString(fmt.Sprintf(`<w:t xml:space="preserve">%s</w:t>`, escaped))
+		} else {
+			content.WriteString(fmt.Sprintf(`<w:t>%s</w:t>`, escaped))
+		}
 	}
 
 	if r.picture != nil {
@@ -1136,4 +1180,23 @@ func (r *Run) wrapWithHyperlink(runXML string) string {
 	}
 
 	return fmt.Sprintf(`<w:hyperlink%s>%s</w:hyperlink>`, attrStr, runXML)
+}
+
+func needsSpacePreserve(text string) bool {
+	if text == "" {
+		return false
+	}
+	if strings.HasPrefix(text, " ") || strings.HasSuffix(text, " ") {
+		return true
+	}
+	if strings.Contains(text, "  ") {
+		return true
+	}
+	for _, ch := range text {
+		switch ch {
+		case '\t', '\n', '\r':
+			return true
+		}
+	}
+	return false
 }

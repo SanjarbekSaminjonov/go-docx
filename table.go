@@ -8,14 +8,35 @@ import (
 
 // Table represents a table in a Word document
 type Table struct {
-	rows        []*TableRow
-	owner       *DocumentPart
-	gridColumns int
-	grid        []int
-	width       int // table width in twentieths of a point (0 for auto)
-	borders     map[TableBorderSide]*TableBorder
-	shading     *Shading
-	cellMargins *TableCellMargins
+	rows           []*TableRow
+	owner          *DocumentPart
+	gridColumns    int
+	grid           []int
+	width          int // table width in twentieths of a point (0 for auto)
+	widthType      string
+	indent         int
+	indentType     string
+	indentSet      bool
+	style          string
+	layout         string
+	look           *TableLook
+	alignment      TableAlignment
+	bordersDefined bool
+	borders        map[TableBorderSide]*TableBorder
+	shading        *Shading
+	cellMargins    *TableCellMargins
+}
+
+var xmlAttrEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"\"", "&quot;",
+	"<", "&lt;",
+	">", "&gt;",
+	"'", "&apos;",
+)
+
+func xmlEscapeAttribute(value string) string {
+	return xmlAttrEscaper.Replace(value)
 }
 
 // Shading describes background shading for table elements.
@@ -63,6 +84,29 @@ type TableBorder struct {
 	Space int    // Spacing in twips between border and content
 }
 
+// TableLook describes visual flags applied to a table style.
+type TableLook struct {
+	Val         string
+	FirstRow    bool
+	LastRow     bool
+	FirstColumn bool
+	LastColumn  bool
+	NoHBand     bool
+	NoVBand     bool
+}
+
+// TableAlignment represents table justification.
+type TableAlignment string
+
+const (
+	TableAlignmentLeft   TableAlignment = "left"
+	TableAlignmentCenter TableAlignment = "center"
+	TableAlignmentRight  TableAlignment = "right"
+	TableAlignmentBoth   TableAlignment = "both"
+	TableAlignmentStart  TableAlignment = "start"
+	TableAlignmentEnd    TableAlignment = "end"
+)
+
 // TableCellMargins represents default margins for table cells.
 type TableCellMargins struct {
 	Top, Left, Bottom, Right *int
@@ -92,13 +136,12 @@ func NewTable(rows, cols int) *Table {
 		rows:        make([]*TableRow, rows),
 		gridColumns: cols,
 		grid:        make([]int, cols),
+		widthType:   "auto",
 		borders:     make(map[TableBorderSide]*TableBorder),
 	}
 
 	for _, side := range []TableBorderSide{TableBorderTop, TableBorderLeft, TableBorderBottom, TableBorderRight, TableBorderInsideH, TableBorderInsideV} {
-		border := TableBorder{Style: "single", Color: "auto", Size: 4, Space: 0}
-		copy := border
-		table.borders[side] = &copy
+		table.SetBorder(side, TableBorder{Style: "single", Color: "auto", Size: 4, Space: 0})
 	}
 
 	for i := 0; i < rows; i++ {
@@ -273,20 +316,149 @@ func (t *Table) SetBorder(side TableBorderSide, border TableBorder) {
 	}
 	if border.Style == "" {
 		delete(t.borders, side)
+		if len(t.borders) == 0 {
+			t.bordersDefined = false
+		}
 		return
 	}
 	copy := border
 	t.borders[side] = &copy
+	t.bordersDefined = true
 }
 
 // SetWidth sets the table width in twentieths of a point (0 for auto width)
 func (t *Table) SetWidth(width int) {
+	if width <= 0 {
+		t.width = 0
+		t.widthType = "auto"
+		return
+	}
 	t.width = width
+	t.widthType = "dxa"
 }
 
 // Width returns the table width in twentieths of a point (0 means auto)
 func (t *Table) Width() int {
 	return t.width
+}
+
+// SetWidthWithType sets the table width value with an explicit width type (e.g. dxa, pct, auto).
+func (t *Table) SetWidthWithType(width int, typ string) {
+	t.width = width
+	if typ == "" {
+		if width <= 0 {
+			t.widthType = "auto"
+			t.width = 0
+			return
+		}
+		t.widthType = "dxa"
+		return
+	}
+	t.widthType = typ
+}
+
+// WidthType returns the stored table width type string.
+func (t *Table) WidthType() string {
+	if t.widthType == "" {
+		if t.width <= 0 {
+			return "auto"
+		}
+		return "dxa"
+	}
+	return t.widthType
+}
+
+// SetIndent sets the table indentation in twentieths of a point with the given type (e.g. "dxa").
+func (t *Table) SetIndent(value int, typ string) {
+	t.indent = value
+	t.indentType = typ
+	t.indentSet = true
+	if t.indentType == "" {
+		t.indentType = "dxa"
+	}
+}
+
+// Indent returns the table indentation value and type if set.
+func (t *Table) Indent() (int, string, bool) {
+	if !t.indentSet {
+		return 0, "", false
+	}
+	typ := t.indentType
+	if typ == "" {
+		typ = "dxa"
+	}
+	return t.indent, typ, true
+}
+
+// ClearIndent removes any table indentation settings.
+func (t *Table) ClearIndent() {
+	t.indent = 0
+	t.indentType = ""
+	t.indentSet = false
+}
+
+// SetStyle applies a table style by id.
+func (t *Table) SetStyle(style string) {
+	t.style = style
+}
+
+// Style returns the currently assigned table style id.
+func (t *Table) Style() string {
+	return t.style
+}
+
+// ClearStyle removes any table style association.
+func (t *Table) ClearStyle() {
+	t.style = ""
+}
+
+// SetLayout stores the table layout (e.g. "fixed" or "autofit").
+func (t *Table) SetLayout(layout string) {
+	t.layout = layout
+}
+
+// Layout returns the stored table layout value.
+func (t *Table) Layout() string {
+	return t.layout
+}
+
+// ClearLayout removes any explicit table layout setting.
+func (t *Table) ClearLayout() {
+	t.layout = ""
+}
+
+// SetAlignment configures the table justification.
+func (t *Table) SetAlignment(alignment TableAlignment) {
+	t.alignment = alignment
+}
+
+// Alignment returns the currently stored table justification.
+func (t *Table) Alignment() TableAlignment {
+	return t.alignment
+}
+
+// ClearAlignment removes any table justification setting.
+func (t *Table) ClearAlignment() {
+	t.alignment = ""
+}
+
+// SetLook stores the look flags associated with the table.
+func (t *Table) SetLook(look TableLook) {
+	copy := look
+	t.look = &copy
+}
+
+// Look returns the table look configuration when present.
+func (t *Table) Look() (*TableLook, bool) {
+	if t.look == nil {
+		return nil, false
+	}
+	return t.look, true
+}
+
+// ClearLook removes any table look information.
+func (t *Table) ClearLook() {
+	t.look = nil
 }
 
 // Border returns the configured border for the table on the specified side.
@@ -301,6 +473,7 @@ func (t *Table) Border(side TableBorderSide) (*TableBorder, bool) {
 // ClearBorders removes all table border definitions.
 func (t *Table) ClearBorders() {
 	t.borders = make(map[TableBorderSide]*TableBorder)
+	t.bordersDefined = false
 }
 
 // SetShading configures table-level shading.
@@ -402,15 +575,39 @@ func (t *Table) tblPropertiesXML() string {
 	var builder strings.Builder
 	builder.WriteString("<w:tblPr>")
 
-	// Table width
-	if t.width > 0 {
-		builder.WriteString(fmt.Sprintf(`<w:tblW w:w="%d" w:type="dxa"/>`, t.width))
-	} else {
-		builder.WriteString(`<w:tblW w:w="0" w:type="auto"/>`)
+	if t.style != "" {
+		builder.WriteString(fmt.Sprintf(`<w:tblStyle w:val="%s"/>`, xmlEscapeAttribute(t.style)))
 	}
 
-	if t.hasBorders() {
+	widthType := t.WidthType()
+	widthVal := t.width
+	if widthType == "auto" {
+		widthVal = 0
+	}
+	builder.WriteString(fmt.Sprintf(`<w:tblW w:w="%d" w:type="%s"/>`, widthVal, xmlEscapeAttribute(widthType)))
+
+	if t.indentSet {
+		typeAttr := t.indentType
+		if typeAttr == "" {
+			typeAttr = "dxa"
+		}
+		builder.WriteString(fmt.Sprintf(`<w:tblInd w:w="%d" w:type="%s"/>`, t.indent, typeAttr))
+	}
+
+	if t.alignment != "" {
+		builder.WriteString(fmt.Sprintf(`<w:jc w:val="%s"/>`, xmlEscapeAttribute(string(t.alignment))))
+	}
+
+	if t.bordersDefined || len(t.borders) > 0 {
 		builder.WriteString(t.bordersXML())
+	}
+
+	if t.layout != "" {
+		builder.WriteString(fmt.Sprintf(`<w:tblLayout w:type="%s"/>`, xmlEscapeAttribute(t.layout)))
+	}
+
+	if t.look != nil {
+		builder.WriteString(tableLookElement(t.look))
 	}
 	if t.hasShading() {
 		builder.WriteString(shadingElement(t.shading))
@@ -422,21 +619,9 @@ func (t *Table) tblPropertiesXML() string {
 	return builder.String()
 }
 
-func (t *Table) hasBorders() bool {
-	if len(t.borders) == 0 {
-		return false
-	}
-	for _, border := range t.borders {
-		if border != nil && border.Style != "" {
-			return true
-		}
-	}
-	return false
-}
-
 func (t *Table) bordersXML() string {
-	if !t.hasBorders() {
-		return ""
+	if len(t.borders) == 0 {
+		return "<w:tblBorders/>"
 	}
 	var builder strings.Builder
 	builder.WriteString("<w:tblBorders>")
@@ -515,12 +700,16 @@ func (tc *TableCell) bordersXML() string {
 
 func borderElement(tag string, border *TableBorder) string {
 	attrs := []string{fmt.Sprintf(`w:val="%s"`, border.Style)}
-	if border.Size > 0 {
-		attrs = append(attrs, fmt.Sprintf(`w:sz="%d"`, border.Size))
+	size := border.Size
+	if size < 0 {
+		size = 0
 	}
-	if border.Space > 0 {
-		attrs = append(attrs, fmt.Sprintf(`w:space="%d"`, border.Space))
+	attrs = append(attrs, fmt.Sprintf(`w:sz="%d"`, size))
+	space := border.Space
+	if space < 0 {
+		space = 0
 	}
+	attrs = append(attrs, fmt.Sprintf(`w:space="%d"`, space))
 	color := border.Color
 	if color == "" {
 		color = "auto"
@@ -546,6 +735,27 @@ func shadingElement(shading *Shading) string {
 		color = "auto"
 	}
 	return fmt.Sprintf(`<w:shd w:val="%s" w:color="%s" w:fill="%s"/>`, pattern, color, fill)
+}
+
+func tableLookElement(look *TableLook) string {
+	if look == nil {
+		return ""
+	}
+	attrs := []string{fmt.Sprintf(`w:val="%s"`, xmlEscapeAttribute(look.Val))}
+	attrs = append(attrs, fmt.Sprintf(`w:firstRow="%s"`, boolBinaryAttr(look.FirstRow)))
+	attrs = append(attrs, fmt.Sprintf(`w:lastRow="%s"`, boolBinaryAttr(look.LastRow)))
+	attrs = append(attrs, fmt.Sprintf(`w:firstColumn="%s"`, boolBinaryAttr(look.FirstColumn)))
+	attrs = append(attrs, fmt.Sprintf(`w:lastColumn="%s"`, boolBinaryAttr(look.LastColumn)))
+	attrs = append(attrs, fmt.Sprintf(`w:noHBand="%s"`, boolBinaryAttr(look.NoHBand)))
+	attrs = append(attrs, fmt.Sprintf(`w:noVBand="%s"`, boolBinaryAttr(look.NoVBand)))
+	return fmt.Sprintf(`<w:tblLook %s/>`, strings.Join(attrs, " "))
+}
+
+func boolBinaryAttr(value bool) string {
+	if value {
+		return "1"
+	}
+	return "0"
 }
 
 func (t *Table) tblGridXML() string {

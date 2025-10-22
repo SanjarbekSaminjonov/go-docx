@@ -161,7 +161,16 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 			case "pPr":
 				// handle paragraph properties including potential sectPr nested inside pPr
 			case "rPr":
-				// run properties container
+				if currentRun == nil {
+					raw, err := collectElementXML(decoder, t)
+					if err != nil {
+						return nil, err
+					}
+					if raw != "" {
+						paragraph.markRunProperties = append(paragraph.markRunProperties, raw)
+					}
+					continue
+				}
 			case "pStyle":
 				if style := attrValue(t.Attr, "val"); style != "" {
 					paragraph.SetStyle(style)
@@ -179,6 +188,7 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 				paragraph.section = sect
 				continue
 			case "pBdr":
+				paragraph.bordersDefined = true
 				borders, err := parseParagraphBorders(decoder, t)
 				if err != nil {
 					return nil, err
@@ -304,6 +314,14 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 			case "t":
 				textBuffer.Reset()
 				inText = true
+				if currentRun != nil {
+					for _, attr := range t.Attr {
+						if attr.Name.Space == "xml" && attr.Name.Local == "space" && strings.EqualFold(attr.Value, "preserve") {
+							currentRun.SetSpacePreserve(true)
+							break
+						}
+					}
+				}
 			case "b":
 				if currentRun != nil {
 					currentRun.SetBold(true)
@@ -461,6 +479,18 @@ func parseParagraph(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPa
 				if picture != nil {
 					currentRun.picture = picture
 				}
+			case "AlternateContent":
+				if currentRun == nil {
+					currentRun = NewRun("")
+					applyHyperlinkContext(currentRun)
+				}
+				picture, err := parseAlternateContent(decoder, t, dp)
+				if err != nil {
+					return nil, err
+				}
+				if picture != nil {
+					currentRun.picture = picture
+				}
 			default:
 				if err := skipElement(decoder, t); err != nil {
 					return nil, err
@@ -554,6 +584,53 @@ func parseDrawing(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart
 	}
 
 	return picture, nil
+}
+
+func parseAlternateContent(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart) (*Picture, error) {
+	picture, err := extractPictureFromContainer(decoder, start, dp)
+	if err != nil {
+		return nil, err
+	}
+	return picture, nil
+}
+
+func extractPictureFromContainer(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart) (*Picture, error) {
+	for {
+		tok, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			switch t.Name.Local {
+			case "drawing":
+				picture, err := parseDrawing(decoder, t, dp)
+				if err != nil {
+					return nil, err
+				}
+				if picture != nil {
+					return picture, nil
+				}
+			case "AlternateContent", "Choice", "Fallback":
+				nested, err := extractPictureFromContainer(decoder, t, dp)
+				if err != nil {
+					return nil, err
+				}
+				if nested != nil {
+					return nested, nil
+				}
+			default:
+				if err := skipElement(decoder, t); err != nil {
+					return nil, err
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == start.Name.Local {
+				return nil, nil
+			}
+		}
+	}
 }
 
 func parseParagraphBorders(decoder *xml.Decoder, start xml.StartElement) (map[ParagraphBorderSide]*ParagraphBorder, error) {
@@ -1130,6 +1207,7 @@ func parseTableProperties(decoder *xml.Decoder, start xml.StartElement, table *T
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "tblBorders":
+				table.bordersDefined = true
 				borders, err := parseTableBorders(decoder, t)
 				if err != nil {
 					return err
@@ -1153,6 +1231,59 @@ func parseTableProperties(decoder *xml.Decoder, start xml.StartElement, table *T
 					return err
 				}
 			case "tblW":
+				width := 0
+				if val := attrValue(t.Attr, "w"); val != "" {
+					if parsed, convErr := strconv.Atoi(val); convErr == nil {
+						width = parsed
+					}
+				}
+				table.SetWidthWithType(width, attrValue(t.Attr, "type"))
+				if table.WidthType() == "auto" {
+					table.width = 0
+				}
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			case "tblInd":
+				indentVal := 0
+				if val := attrValue(t.Attr, "w"); val != "" {
+					if parsed, convErr := strconv.Atoi(val); convErr == nil {
+						indentVal = parsed
+					}
+				}
+				table.SetIndent(indentVal, attrValue(t.Attr, "type"))
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			case "tblStyle":
+				table.style = attrValue(t.Attr, "val")
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			case "tblLayout":
+				table.layout = attrValue(t.Attr, "type")
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			case "tblLook":
+				look := TableLook{
+					Val:         attrValue(t.Attr, "val"),
+					FirstRow:    parseBinaryFlag(attrValue(t.Attr, "firstRow")),
+					LastRow:     parseBinaryFlag(attrValue(t.Attr, "lastRow")),
+					FirstColumn: parseBinaryFlag(attrValue(t.Attr, "firstColumn")),
+					LastColumn:  parseBinaryFlag(attrValue(t.Attr, "lastColumn")),
+					NoHBand:     parseBinaryFlag(attrValue(t.Attr, "noHBand")),
+					NoVBand:     parseBinaryFlag(attrValue(t.Attr, "noVBand")),
+				}
+				table.SetLook(look)
+				if err := skipElement(decoder, t); err != nil {
+					return err
+				}
+			case "jc":
+				val := attrValue(t.Attr, "val")
+				if val != "" {
+					table.alignment = TableAlignment(val)
+				}
 				if err := skipElement(decoder, t); err != nil {
 					return err
 				}
@@ -1301,6 +1432,108 @@ func skipElement(decoder *xml.Decoder, start xml.StartElement) error {
 	return nil
 }
 
+func collectElementXML(decoder *xml.Decoder, start xml.StartElement) (string, error) {
+	var builder strings.Builder
+	writeStartElement(&builder, start)
+	depth := 1
+	for depth > 0 {
+		tok, err := decoder.Token()
+		if err != nil {
+			return "", err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			writeStartElement(&builder, t)
+			depth++
+		case xml.EndElement:
+			writeEndElement(&builder, t)
+			depth--
+		case xml.CharData:
+			builder.WriteString(escapeCharData(string(t)))
+		case xml.Comment:
+			builder.WriteString("<!--" + string(t) + "-->")
+		case xml.Directive:
+			builder.WriteString("<!" + string(t) + ">")
+		case xml.ProcInst:
+			builder.WriteString("<?" + t.Target + " " + string(t.Inst) + "?>")
+		}
+	}
+	return builder.String(), nil
+}
+
+var namespacePrefixes = map[string]string{
+	"http://schemas.openxmlformats.org/wordprocessingml/2006/main":           "w",
+	"http://schemas.openxmlformats.org/officeDocument/2006/relationships":    "r",
+	"http://schemas.openxmlformats.org/drawingml/2006/main":                  "a",
+	"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing": "wp",
+	"http://schemas.openxmlformats.org/drawingml/2006/picture":               "pic",
+	"http://schemas.openxmlformats.org/drawingml/2006/chart":                 "c",
+	"http://www.w3.org/XML/1998/namespace":                                   "xml",
+}
+
+func resolvePrefix(namespace string) string {
+	if namespace == "" {
+		return ""
+	}
+	if prefix, ok := namespacePrefixes[namespace]; ok {
+		return prefix
+	}
+	return ""
+}
+
+func writeStartElement(builder *strings.Builder, start xml.StartElement) {
+	builder.WriteByte('<')
+	if prefix := resolvePrefix(start.Name.Space); prefix != "" {
+		builder.WriteString(prefix)
+		builder.WriteByte(':')
+	}
+	builder.WriteString(start.Name.Local)
+	for _, attr := range start.Attr {
+		if attr.Name.Space == "xmlns" || (attr.Name.Space == "" && attr.Name.Local == "xmlns") {
+			continue
+		}
+		builder.WriteByte(' ')
+		if prefix := resolvePrefix(attr.Name.Space); prefix != "" {
+			builder.WriteString(prefix)
+			builder.WriteByte(':')
+		}
+		builder.WriteString(attr.Name.Local)
+		builder.WriteString(`="`)
+		builder.WriteString(escapeAttribute(attr.Value))
+		builder.WriteByte('"')
+	}
+	builder.WriteByte('>')
+}
+
+func writeEndElement(builder *strings.Builder, end xml.EndElement) {
+	builder.WriteString("</")
+	if prefix := resolvePrefix(end.Name.Space); prefix != "" {
+		builder.WriteString(prefix)
+		builder.WriteByte(':')
+	}
+	builder.WriteString(end.Name.Local)
+	builder.WriteByte('>')
+}
+
+func escapeAttribute(value string) string {
+	replacer := strings.NewReplacer(
+		"&", "&amp;",
+		"\"", "&quot;",
+		"<", "&lt;",
+		">", "&gt;",
+	)
+	return replacer.Replace(value)
+}
+
+func escapeCharData(value string) string {
+	replacer := strings.NewReplacer(
+		"&", "&amp;",
+		"<", "&lt;",
+		">", "&gt;",
+	)
+	return replacer.Replace(value)
+}
+
 func attrValue(attrs []xml.Attr, key string) string {
 	for _, attr := range attrs {
 		if attr.Name.Local == key {
@@ -1319,6 +1552,15 @@ func parseOnOff(attrs []xml.Attr) *bool {
 		return boolPtr(false)
 	default:
 		return boolPtr(true)
+	}
+}
+
+func parseBinaryFlag(val string) bool {
+	switch strings.ToLower(val) {
+	case "1", "true", "on":
+		return true
+	default:
+		return false
 	}
 }
 
