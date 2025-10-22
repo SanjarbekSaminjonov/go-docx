@@ -11,6 +11,7 @@ type Table struct {
 	rows        []*TableRow
 	owner       *DocumentPart
 	gridColumns int
+	grid        []int
 	width       int // table width in twentieths of a point (0 for auto)
 	borders     map[TableBorderSide]*TableBorder
 	shading     *Shading
@@ -90,6 +91,7 @@ func NewTable(rows, cols int) *Table {
 	table := &Table{
 		rows:        make([]*TableRow, rows),
 		gridColumns: cols,
+		grid:        make([]int, cols),
 		borders:     make(map[TableBorderSide]*TableBorder),
 	}
 
@@ -116,6 +118,10 @@ func NewTable(rows, cols int) *Table {
 		}
 
 		table.rows[i] = row
+	}
+
+	for i := range table.grid {
+		table.grid[i] = 1440
 	}
 
 	return table
@@ -146,6 +152,17 @@ func (t *Table) AddRow() *TableRow {
 	if len(t.rows) > 0 && t.rows[len(t.rows)-1] != nil {
 		cols = len(t.rows[len(t.rows)-1].cells)
 	}
+	if cols <= 0 {
+		cols = len(t.grid)
+	}
+	if cols <= 0 {
+		cols = 1
+	}
+
+	t.ensureGridLength(cols)
+	if cols > t.gridColumns {
+		t.gridColumns = cols
+	}
 
 	row := &TableRow{
 		table: t,
@@ -153,10 +170,14 @@ func (t *Table) AddRow() *TableRow {
 	}
 
 	for i := 0; i < cols; i++ {
+		width := 1440
+		if i < len(t.grid) && t.grid[i] > 0 {
+			width = t.grid[i]
+		}
 		cell := &TableCell{
 			row:        row,
 			paragraphs: []*Paragraph{NewParagraph()},
-			width:      1440,
+			width:      width,
 			borders:    make(map[TableBorderSide]*TableBorder),
 		}
 		if len(cell.paragraphs) > 0 && cell.paragraphs[0] != nil {
@@ -185,6 +206,18 @@ func (t *Table) InsertRowAt(index int) *TableRow {
 		// Yaqin qatordagi ustunlar sonini olish
 		refIndex := index - 1
 		if refIndex < 0 && len(t.rows) > 0 {
+
+			if cols <= 0 {
+				cols = len(t.grid)
+			}
+			if cols <= 0 {
+				cols = 1
+			}
+
+			t.ensureGridLength(cols)
+			if cols > t.gridColumns {
+				t.gridColumns = cols
+			}
 			refIndex = 0 // Birinchi qatorga qo'shyotganda, birinchi qatorni reference qilish
 		}
 		if refIndex >= 0 && refIndex < len(t.rows) && t.rows[refIndex] != nil {
@@ -192,15 +225,31 @@ func (t *Table) InsertRowAt(index int) *TableRow {
 		}
 	}
 
+	if cols <= 0 {
+		cols = len(t.grid)
+	}
+	if cols <= 0 {
+		cols = 1
+	}
+
+	t.ensureGridLength(cols)
+	if cols > t.gridColumns {
+		t.gridColumns = cols
+	}
+
 	row := &TableRow{
 		table: t,
 		cells: make([]*TableCell, cols),
 	}
 	for i := 0; i < cols; i++ {
+		width := 1440
+		if i < len(t.grid) && t.grid[i] > 0 {
+			width = t.grid[i]
+		}
 		cell := &TableCell{
 			row:        row,
 			paragraphs: []*Paragraph{NewParagraph()},
-			width:      1440,
+			width:      width,
 			borders:    make(map[TableBorderSide]*TableBorder),
 		}
 		if len(cell.paragraphs) > 0 && cell.paragraphs[0] != nil {
@@ -352,14 +401,14 @@ func (t *Table) MergeCellsVertically(column, startRow, endRow int) error {
 func (t *Table) tblPropertiesXML() string {
 	var builder strings.Builder
 	builder.WriteString("<w:tblPr>")
-	
+
 	// Table width
 	if t.width > 0 {
 		builder.WriteString(fmt.Sprintf(`<w:tblW w:w="%d" w:type="dxa"/>`, t.width))
 	} else {
 		builder.WriteString(`<w:tblW w:w="0" w:type="auto"/>`)
 	}
-	
+
 	if t.hasBorders() {
 		builder.WriteString(t.bordersXML())
 	}
@@ -499,6 +548,146 @@ func shadingElement(shading *Shading) string {
 	return fmt.Sprintf(`<w:shd w:val="%s" w:color="%s" w:fill="%s"/>`, pattern, color, fill)
 }
 
+func (t *Table) tblGridXML() string {
+	widths := t.columnWidths()
+	if len(widths) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.WriteString("<w:tblGrid>")
+	for _, w := range widths {
+		if w < 0 {
+			w = 0
+		}
+		builder.WriteString(fmt.Sprintf(`<w:gridCol w:w="%d"/>`, w))
+	}
+	builder.WriteString("</w:tblGrid>")
+	return builder.String()
+}
+
+func (t *Table) ensureGridLength(cols int) {
+	if cols <= 0 {
+		return
+	}
+	if len(t.grid) >= cols {
+		return
+	}
+	missing := cols - len(t.grid)
+	for i := 0; i < missing; i++ {
+		t.grid = append(t.grid, 1440)
+	}
+}
+
+// SetColumnWidths updates the table grid column widths (twentieths of a point).
+// Existing rows will have their cell widths adjusted to match the new grid.
+func (t *Table) SetColumnWidths(widths ...int) {
+	if len(widths) == 0 {
+		t.grid = nil
+		t.gridColumns = 0
+		return
+	}
+
+	// Defensive copy to avoid external mutation
+	if t.grid == nil || cap(t.grid) < len(widths) {
+		t.grid = append([]int(nil), widths...)
+	} else {
+		t.grid = t.grid[:len(widths)]
+		copy(t.grid, widths)
+	}
+
+	t.gridColumns = len(widths)
+
+	for _, row := range t.rows {
+		col := 0
+		for _, cell := range row.cells {
+			span := cell.GridSpan()
+			if span < 1 {
+				span = 1
+			}
+			if col >= len(widths) {
+				break
+			}
+			total := 0
+			for i := 0; i < span && col+i < len(widths); i++ {
+				total += widths[col+i]
+			}
+			if total > 0 {
+				cell.width = total
+			}
+			col += span
+		}
+	}
+}
+
+func (t *Table) columnWidths() []int {
+	if len(t.grid) > 0 {
+		res := make([]int, len(t.grid))
+		copy(res, t.grid)
+		return res
+	}
+
+	if t.gridColumns <= 0 {
+		return nil
+	}
+
+	widths := make([]int, t.gridColumns)
+	filled := make([]bool, t.gridColumns)
+
+	for _, row := range t.rows {
+		col := 0
+		for _, cell := range row.cells {
+			span := cell.GridSpan()
+			if span < 1 {
+				span = 1
+			}
+			total := cell.Width()
+			if total <= 0 {
+				col += span
+				continue
+			}
+
+			per := total / span
+			remainder := 0
+			if span > 0 {
+				remainder = total % span
+			}
+
+			for i := 0; i < span && col < len(widths); i++ {
+				w := per
+				if remainder > 0 {
+					w++
+					remainder--
+				}
+				if !filled[col] && w > 0 {
+					widths[col] = w
+					filled[col] = true
+				}
+				col++
+			}
+		}
+
+		complete := true
+		for _, f := range filled {
+			if !f {
+				complete = false
+				break
+			}
+		}
+		if complete {
+			break
+		}
+	}
+
+	for i := range widths {
+		if widths[i] == 0 {
+			widths[i] = 1440
+		}
+	}
+
+	return widths
+}
+
 // ToXML converts the table to WordprocessingML XML
 func (t *Table) ToXML() string {
 	var rowsXML strings.Builder
@@ -507,7 +696,7 @@ func (t *Table) ToXML() string {
 		rowsXML.WriteString(row.ToXML())
 	}
 
-	return fmt.Sprintf(`<w:tbl>%s%s</w:tbl>`, t.tblPropertiesXML(), rowsXML.String())
+	return fmt.Sprintf(`<w:tbl>%s%s%s</w:tbl>`, t.tblPropertiesXML(), t.tblGridXML(), rowsXML.String())
 }
 
 // Cells returns all cells in the row

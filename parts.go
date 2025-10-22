@@ -726,12 +726,15 @@ func parseTable(decoder *xml.Decoder, start xml.StartElement, dp *DocumentPart) 
 					return nil, err
 				}
 			case "tblGrid":
-				cols, err := parseTableGrid(decoder, t)
+				widths, err := parseTableGrid(decoder, t)
 				if err != nil {
 					return nil, err
 				}
-				if cols > table.gridColumns {
-					table.gridColumns = cols
+				if len(widths) > 0 {
+					table.grid = append([]int(nil), widths...)
+					if len(widths) > table.gridColumns {
+						table.gridColumns = len(widths)
+					}
 				}
 			default:
 				if err := skipElement(decoder, t); err != nil {
@@ -1251,24 +1254,30 @@ func parseTableCellMargins(decoder *xml.Decoder, start xml.StartElement) (*Table
 	}
 }
 
-func parseTableGrid(decoder *xml.Decoder, start xml.StartElement) (int, error) {
-	count := 0
+func parseTableGrid(decoder *xml.Decoder, start xml.StartElement) ([]int, error) {
+	widths := make([]int, 0)
 	for {
 		tok, err := decoder.Token()
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
 			if t.Name.Local == "gridCol" {
-				count++
+				width := 0
+				if val := attrValue(t.Attr, "w"); val != "" {
+					if w, err := strconv.Atoi(val); err == nil {
+						width = w
+					}
+				}
+				widths = append(widths, width)
 			}
 			if err := skipElement(decoder, t); err != nil {
-				return 0, err
+				return nil, err
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				return count, nil
+				return widths, nil
 			}
 		}
 	}
