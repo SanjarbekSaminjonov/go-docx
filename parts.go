@@ -869,6 +869,7 @@ func parseTableCell(decoder *xml.Decoder, start xml.StartElement, row *TableRow,
 	cell := &TableCell{
 		row:        row,
 		paragraphs: make([]*Paragraph, 0),
+		tables:     make([]*Table, 0),
 		width:      1440,
 		borders:    make(map[TableBorderSide]*TableBorder),
 	}
@@ -893,8 +894,12 @@ func parseTableCell(decoder *xml.Decoder, start xml.StartElement, row *TableRow,
 				}
 				cell.paragraphs = append(cell.paragraphs, paragraph)
 			case "tbl":
-				if err := skipElement(decoder, t); err != nil {
+				nested, err := parseTable(decoder, t, dp)
+				if err != nil {
 					return nil, err
+				}
+				if nested != nil {
+					cell.tables = append(cell.tables, nested)
 				}
 			default:
 				if err := skipElement(decoder, t); err != nil {
@@ -903,7 +908,7 @@ func parseTableCell(decoder *xml.Decoder, start xml.StartElement, row *TableRow,
 			}
 		case xml.EndElement:
 			if t.Name.Local == start.Name.Local {
-				if len(cell.paragraphs) == 0 {
+				if len(cell.paragraphs) == 0 && len(cell.tables) == 0 {
 					paragraph := NewParagraph()
 					paragraph.owner = dp
 					cell.paragraphs = []*Paragraph{paragraph}

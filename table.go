@@ -56,6 +56,7 @@ type TableRow struct {
 type TableCell struct {
 	row           *TableRow
 	paragraphs    []*Paragraph
+	tables        []*Table
 	width         int // width in twentieths of a point
 	gridSpan      int
 	verticalMerge TableVerticalMerge
@@ -154,6 +155,7 @@ func NewTable(rows, cols int) *Table {
 			cell := &TableCell{
 				row:        row,
 				paragraphs: []*Paragraph{NewParagraph()},
+				tables:     make([]*Table, 0),
 				width:      1440, // 1 inch default
 				borders:    make(map[TableBorderSide]*TableBorder),
 			}
@@ -220,6 +222,7 @@ func (t *Table) AddRow() *TableRow {
 		cell := &TableCell{
 			row:        row,
 			paragraphs: []*Paragraph{NewParagraph()},
+			tables:     make([]*Table, 0),
 			width:      width,
 			borders:    make(map[TableBorderSide]*TableBorder),
 		}
@@ -292,6 +295,7 @@ func (t *Table) InsertRowAt(index int) *TableRow {
 		cell := &TableCell{
 			row:        row,
 			paragraphs: []*Paragraph{NewParagraph()},
+			tables:     make([]*Table, 0),
 			width:      width,
 			borders:    make(map[TableBorderSide]*TableBorder),
 		}
@@ -943,6 +947,11 @@ func (tc *TableCell) Paragraphs() []*Paragraph {
 	return tc.paragraphs
 }
 
+// Tables returns nested tables contained in the cell.
+func (tc *TableCell) Tables() []*Table {
+	return tc.tables
+}
+
 // AddParagraph adds a new paragraph to the cell
 func (tc *TableCell) AddParagraph(text ...string) *Paragraph {
 	paragraph := NewParagraph()
@@ -958,6 +967,21 @@ func (tc *TableCell) AddParagraph(text ...string) *Paragraph {
 	return paragraph
 }
 
+// AddTable appends a nested table to the cell content.
+func (tc *TableCell) AddTable(rows, cols int) *Table {
+	table := NewTable(rows, cols)
+	if tc.row != nil && tc.row.table != nil {
+		table.setOwner(tc.row.table.owner)
+	}
+	tc.tables = append(tc.tables, table)
+	return table
+}
+
+// ClearTables removes all nested tables from the cell.
+func (tc *TableCell) ClearTables() {
+	tc.tables = nil
+}
+
 func (t *Table) setOwner(owner *DocumentPart) {
 	t.owner = owner
 	for _, row := range t.rows {
@@ -966,6 +990,9 @@ func (t *Table) setOwner(owner *DocumentPart) {
 			cell.row = row
 			for _, paragraph := range cell.paragraphs {
 				paragraph.owner = owner
+			}
+			for _, nested := range cell.tables {
+				nested.setOwner(owner)
 			}
 		}
 	}
@@ -1140,11 +1167,15 @@ func (tc *TableCell) tcPropertiesXML() string {
 
 // ToXML converts the table cell to WordprocessingML XML
 func (tc *TableCell) ToXML() string {
-	var paragraphsXML strings.Builder
+	var content strings.Builder
 
 	for _, paragraph := range tc.paragraphs {
-		paragraphsXML.WriteString(paragraph.ToXML())
+		content.WriteString(paragraph.ToXML())
 	}
 
-	return fmt.Sprintf(`<w:tc>%s%s</w:tc>`, tc.tcPropertiesXML(), paragraphsXML.String())
+	for _, table := range tc.tables {
+		content.WriteString(table.ToXML())
+	}
+
+	return fmt.Sprintf(`<w:tc>%s%s</w:tc>`, tc.tcPropertiesXML(), content.String())
 }
